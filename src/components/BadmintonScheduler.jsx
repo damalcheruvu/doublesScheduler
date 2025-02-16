@@ -430,8 +430,8 @@ const BadmintonScheduler = () => {
                   <div className="mt-1">
                     <textarea
                       id="players"
-                      rows={10}
-                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                      rows={20}
+                      className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-2 border-gray-300 rounded-md hover:border-gray-400 min-h-[400px]"
                       value={players}
                       onChange={handlePlayersChange}
                     />
@@ -439,37 +439,66 @@ const BadmintonScheduler = () => {
                 </div>
     
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-                  <div>
-                    <label htmlFor="maxCourts" className="block text-sm font-medium text-gray-700">
-                      Maximum Courts
+               
+                <div>
+                    <label htmlFor="maxCourts" className="block text-sm font-medium text-gray-700 mb-2">
+                    Maximum Courts
                     </label>
+                    <div className="relative">
                     <select
-                      id="maxCourts"
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                      value={maxCourts}
-                      onChange={(e) => setMaxCourts(parseInt(e.target.value))}
+                        id="maxCourts"
+                        className="mt-1 block w-full pl-3 pr-10 py-2.5 text-base 
+                                border-2 border-gray-300 
+                                hover:border-gray-400
+                                focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                sm:text-sm rounded-md
+                                bg-white
+                                cursor-pointer
+                                appearance-none"
+                        value={maxCourts}
+                        onChange={(e) => setMaxCourts(parseInt(e.target.value))}
                     >
-                      {[1, 2, 3, 4, 5, 6].map(num => (
+                        {[1, 2, 3, 4, 5, 6].map(num => (
                         <option key={num} value={num}>{num}</option>
-                      ))}
+                        ))}
                     </select>
-                  </div>
-    
-                  <div>
-                    <label htmlFor="maxRounds" className="block text-sm font-medium text-gray-700">
-                      Number of Rounds
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                    </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label htmlFor="maxRounds" className="block text-sm font-medium text-gray-700 mb-2">
+                    Number of Rounds
                     </label>
+                    <div className="relative">
                     <select
-                      id="maxRounds"
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                      value={maxRounds}
-                      onChange={(e) => setMaxRounds(parseInt(e.target.value))}
+                        id="maxRounds"
+                        className="mt-1 block w-full pl-3 pr-10 py-2.5 text-base 
+                                border-2 border-gray-300 
+                                hover:border-gray-400
+                                focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 
+                                sm:text-sm rounded-md
+                                bg-white
+                                cursor-pointer
+                                appearance-none"
+                        value={maxRounds}
+                        onChange={(e) => setMaxRounds(parseInt(e.target.value))}
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
                         <option key={num} value={num}>{num}</option>
-                      ))}
+                        ))}
                     </select>
-                  </div>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                    </div>
+                    </div>
+                </div>
     
                   <div className="flex items-center h-full mt-6">
                     <label className="inline-flex items-center">
