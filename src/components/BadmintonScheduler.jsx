@@ -1049,6 +1049,11 @@ const BadmintonScheduler = () => {
           const content = e.target.result;
           if (typeof content === 'string') {
             setPlayers(content);
+            
+            // Trigger validation after importing
+            const errors = validatePlayers(content);
+            setError(errors.join('\n'));
+            
             alert('Players imported successfully!');
           } else {
             alert('Error: Invalid file content');
@@ -1065,7 +1070,7 @@ const BadmintonScheduler = () => {
         event.target.value = '';
       }
     }
-  }, []);
+  }, [validatePlayers]);
 
   const handlePlayersChange = useCallback(
     e => {

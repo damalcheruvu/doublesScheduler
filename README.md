@@ -51,7 +51,7 @@ A sophisticated web-based tournament scheduler for badminton doubles matches tha
 - **Frontend**: React 18 with Vite
 - **Styling**: Tailwind CSS
 - **Build Tool**: Vite
-- **Deployment**: GitHub Pages / Vercel
+- **Deployment**: GitHub Pages
 
 ### Local Development
 
