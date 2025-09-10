@@ -955,26 +955,115 @@ const BadmintonScheduler = () => {
     }
   }, []);
 
-  // Export players functionality
+  // Export players functionality - Mobile compatible
   const exportPlayers = useCallback(() => {
-    const blob = new Blob([players], { type: 'text/plain' });
+    if (!players.trim()) {
+      alert('No players to export. Please add some players first.');
+      return;
+    }
+    try {
+      const text = players;
+      const filename = 'badminton_players.txt';
+      
+      // Check if we're on mobile
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile && navigator.share) {
+        // Use Web Share API on mobile if available
+        navigator.share({
+          title: 'Badminton Players',
+          text: text,
+          files: [new File([text], filename, { type: 'text/plain' })]
+        }).catch(() => {
+          // Fallback to clipboard if sharing fails
+          fallbackToClipboard(text);
+        });
+      } else if (navigator.clipboard && window.isSecureContext) {
+        // Fallback to clipboard for mobile browsers without share API
+        navigator.clipboard.writeText(text).then(() => {
+          alert('Players copied to clipboard! You can paste this into a text file.');
+        }).catch(() => {
+          downloadFile(text, filename);
+        });
+      } else {
+        // Traditional download for desktop or older browsers
+        downloadFile(text, filename);
+      }
+    } catch (error) {
+      alert('Error exporting players: ' + error.message);
+    }
+  }, [players]);
+
+  // Helper function for file download
+  const downloadFile = (text, filename) => {
+    const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'badminton_players.txt';
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [players]);
+  };
 
-  // Import players functionality
+  // Helper function for clipboard fallback
+  const fallbackToClipboard = (text) => {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      alert('Players copied to clipboard! You can paste this into a text file.');
+    } catch (err) {
+      alert('Unable to export. Please manually copy the player names from the text box.');
+    }
+    document.body.removeChild(textArea);
+  };
+
+  // Import players functionality - Mobile compatible
   const importPlayers = useCallback(event => {
     const file = event.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = e => {
-        setPlayers(e.target.result);
-      };
-      reader.readAsText(file);
+      // More lenient file type checking for mobile
+      const isTextFile = file.type === 'text/plain' || 
+                        file.name.endsWith('.txt') || 
+                        file.type === '' || // Some mobile browsers don't set type
+                        file.type === 'application/octet-stream'; // Some mobile browsers use this for .txt
+      
+      if (!isTextFile) {
+        alert('Please select a text file (.txt)');
+        event.target.value = '';
+        return;
+      }
+      
+      try {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const content = e.target.result;
+          if (typeof content === 'string') {
+            setPlayers(content);
+            alert('Players imported successfully!');
+          } else {
+            alert('Error: Invalid file content');
+          }
+          event.target.value = ''; // Reset file input
+        };
+        reader.onerror = () => {
+          alert('Error reading file. Please try again.');
+          event.target.value = '';
+        };
+        reader.readAsText(file);
+      } catch (error) {
+        alert('Error importing players: ' + error.message);
+        event.target.value = '';
+      }
     }
   }, []);
 
@@ -1013,10 +1102,12 @@ const BadmintonScheduler = () => {
             <label className="cursor-pointer rounded-lg border-2 border-green-200 bg-green-50 px-4 py-3 text-lg font-bold text-green-700 shadow-sm hover:bg-green-100 hover:border-green-300 sm:px-3 sm:py-2 sm:text-base">
               Import
               <input
+                id="file-import"
                 type="file"
-                accept=".txt"
+                accept=".txt,text/plain,*"
                 onChange={importPlayers}
                 className="hidden"
+                multiple={false}
               />
             </label>
           </div>
@@ -1025,11 +1116,11 @@ const BadmintonScheduler = () => {
         {/* Maximized textarea for mobile - much taller with bigger font */}
         <textarea
           rows={18}
-          className="mx-auto w-4/5 resize-none rounded border border-gray-300 px-4 py-4 text-lg leading-snug sm:w-full sm:px-3 sm:py-3 sm:text-sm"
+          className="w-full resize-none rounded border border-gray-300 px-4 py-4 text-xl leading-snug sm:px-3 sm:py-3 sm:text-sm"
           value={players}
           onChange={handlePlayersChange}
           placeholder="Enter player names, one per line..."
-          style={{ minHeight: '380px', fontSize: '18px', lineHeight: '1.3' }}
+          style={{ minHeight: '380px', fontSize: '24px', lineHeight: '1.3' }}
         />
         
         {playerStats.playerCount > 0 && (
