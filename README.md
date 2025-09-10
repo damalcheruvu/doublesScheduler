@@ -1,131 +1,84 @@
-# Badminton Court Scheduler
+# Badminton Tournament Scheduler
 
-A sophisticated web-based tournament scheduler for badminton doubles matches that optimises player rotation and court assignments to ensure fair play and minimal repetition.
+A React-based web application for generating badminton doubles tournament schedules with automated player rotation and court assignment.
 
-## 🎯 Features
+## Features
 
-### Core Functionality
+- Player input with duplicate validation
+- Configurable courts (1-6) and rounds (1-10)
+- Automated schedule generation using weighted algorithm
+- Export/import player lists as text files
+- Mobile-optimized interface with 24px fonts
+- Print-ready schedule output
+- Partnership and opposition statistics
 
-- **Smart Player Management**: Input player names with duplicate detection
-- **Flexible Configuration**: Support for 1-6 courts and 1-10 rounds
-- **Intelligent Scheduling**: Optimised algorithm that minimises:
-  - Partner repetition (players paired together)
-  - Opponent repetition (players facing each other)
-  - Court imbalance (uneven court usage)
-  - New interaction promotion (encourages new partnerships)
-- **Print-Optimised Output**: Clean, formatted schedules ready for printing
-- **Detailed Statistics**: Optional player statistics showing partnerships, opponents, and court usage
+## Technical Stack
 
-### Technical Features
+- **React 18.3.1** with functional components and hooks
+- **Vite 6.0.3** for build tooling and development server
+- **Tailwind CSS 3.4.17** for styling with mobile-first responsive design
+- **TypeScript** support with ESLint and Prettier
+- **Vitest** for testing framework
+- **GitHub Pages** deployment
 
-- **React-based UI**: Modern, responsive interface built with React 18
-- **Tailwind CSS**: Clean, professional styling
-- **Real-time Validation**: Immediate feedback on player name duplicates
-- **Print Functionality**: Dedicated print view with optimised formatting
-- **Error Handling**: Comprehensive error messages for better user experience
-
-## 🚀 Live Application
-
-**[Launch Badminton Scheduler](https://damalcheruvu.github.io/doublesScheduler/)**
-
-## 📖 How to Use
-
-1. **Enter Players**: Add player names (one per line) in the text area
-2. **Configure Settings**:
-   - Select number of courts (1-6)
-   - Set number of rounds (1-10)
-   - Toggle statistics inclusion (optional)
-3. **Generate Schedule**: Click "Generate Schedule" to create the tournament
-4. **Print or Save**: Use "Print Games Only" for a clean, printable format
-
-### Player Requirements
-
-- Minimum 4 players required
-- Each player name must be unique (duplicates will be flagged)
-- Names are case-insensitive for duplicate detection
-
-## 🛠️ Development
-
-### Tech Stack
-
-- **Frontend**: React 18 with Vite
-- **Styling**: Tailwind CSS
-- **Build Tool**: Vite
-- **Deployment**: GitHub Pages
-
-### Local Development
+## Development Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/damalcheruvu/doublesScheduler.git
 cd doublesScheduler
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
 ```
 
-### Available Scripts
+## Available Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
+- `npm run dev` - Development server on http://localhost:5173
+- `npm run build` - Production build to `dist/`
 - `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
+- `npm run lint` - ESLint with auto-fix
+- `npm run test` - Run test suite
 - `npm run deploy` - Deploy to GitHub Pages
 
-## 🧠 Algorithm Details
+## Algorithm Implementation
 
-The scheduling algorithm uses a weighted scoring system that considers:
+The scheduling algorithm uses a weighted scoring system:
 
-1. **Partnership Balance** (Weight: 2000)
-   - Heavily penalizes repeated partnerships
-   - Encourages new player combinations
+1. **Partnership penalty**: 1500 base weight with exponential scaling for repeated partnerships
+2. **Opposition penalty**: 600 base weight for repeated opponent matchups  
+3. **Game balance**: 300 weight to distribute games evenly across players
+4. **New interaction bonus**: 200 weight to encourage new partnerships
 
-2. **Opposition Balance** (Weight: 800)
-   - Reduces repeated opponent matchups
-   - Ensures varied competition
+The algorithm generates multiple schedule candidates and selects the one with the lowest total penalty score.
 
-3. **New Interaction Bonus** (Weight: 400)
-   - Rewards completely new partnerships
-   - Promotes social interaction
+## File Structure
 
-4. **Game Balance** (Weight: 200)
-   - Balances total games played per player
-   - Ensures fair participation
+```
+src/
+  components/
+    BadmintonScheduler.jsx    # Main component with scheduling logic
+  App.jsx                     # Root component
+  main.jsx                    # Application entry point
+```
 
-## 📊 Output Format
+## Key Dependencies
 
-The scheduler generates two types of output:
+- `react` & `react-dom` - Core React framework
+- `clsx` & `tailwind-merge` - Conditional CSS class utilities
+- `lucide-react` - Icon components
+- `gh-pages` - GitHub Pages deployment
 
-### Full Schedule
+## Build Output
 
-- Round-by-round breakdown
-- Resting players for each round
-- Court assignments with player matchups
-- Optional detailed statistics
+- Bundle size: ~175KB JavaScript, ~17KB CSS
+- Gzipped: ~55KB JavaScript, ~4KB CSS
+- Single-page application with code splitting
 
-### Games Only (Print Format)
+## Browser Support
 
-- Clean, print-optimised layout
-- Formatted for A4 paper
-- Professional appearance for tournaments
+Requires modern browsers with ES modules support (Chrome 61+, Firefox 60+, Safari 11+).
 
-## 🤝 Contributing
+## Deployment
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Deployed to GitHub Pages at: https://damalcheruvu.github.io/doublesScheduler
 
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
-## 🙏 Acknowledgments
-
-Built for badminton enthusiasts who want to organise fair and engaging tournaments with minimal administrative overhead.
+Deployment is automated via GitHub Actions on push to main branch.
