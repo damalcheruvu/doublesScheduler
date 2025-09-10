@@ -1147,7 +1147,6 @@ const BadmintonScheduler = () => {
             <div className="flex items-start space-x-2">
               <span className="text-lg sm:text-base">💡</span>
               <div className="text-lg sm:text-sm text-blue-800">
-                <p className="font-semibold mb-1">Pro Tip:</p>
                 <p>Add players once, then use <strong>Export</strong> to save your list. Next time, just <strong>Import</strong> your saved file!</p>
               </div>
             </div>
