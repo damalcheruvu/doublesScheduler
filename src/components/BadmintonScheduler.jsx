@@ -1,27 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 
-const defaultPlayers = `
-Appa
-Jeevan
-Koti
-Madhu
-Murali
-Phani
-Prasad
-Praveen
-Raghu R
-Rambabu
-Rao Seema
-Ravi G
-Tarun
-Sreeni
-Subhani
-Tripura
-Srinivas
-Vijay
-Randeep
-`.trim();
-
 const defaultConfig = {
   maxCourts: 4,
   maxRounds: 10,
@@ -35,7 +13,7 @@ const defaultConfig = {
 };
 
 const BadmintonScheduler = () => {
-  const [players, setPlayers] = useState(defaultPlayers);
+  const [players, setPlayers] = useState('');
   const [maxCourts, setMaxCourts] = useState(defaultConfig.maxCourts);
   const [maxRounds, setMaxRounds] = useState(defaultConfig.maxRounds);
   const [schedule, setSchedule] = useState('');
@@ -1163,6 +1141,15 @@ const BadmintonScheduler = () => {
                   <option key={num} value={num}>{num}</option>
                 ))}
               </select>
+            </div>
+          </div>
+          <div className="ml-4 rounded-lg bg-blue-50 border border-blue-200 p-3 max-w-xs sm:max-w-sm">
+            <div className="flex items-start space-x-2">
+              <span className="text-lg sm:text-base">💡</span>
+              <div className="text-lg sm:text-sm text-blue-800">
+                <p className="font-semibold mb-1">Pro Tip:</p>
+                <p>Add players once, then use <strong>Export</strong> to save your list. Next time, just <strong>Import</strong> your saved file!</p>
+              </div>
             </div>
           </div>
         </div>
