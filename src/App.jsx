@@ -37,9 +37,7 @@ function App() {
       {/* Simplified Footer */}
       <footer className="bg-gray-800 py-4 text-gray-300 sm:py-6">
         <div className="mx-auto max-w-7xl px-3 text-center sm:px-4">
-          <p className="text-xs sm:text-sm">
-            Built with ❤️ for badminton enthusiasts
-          </p>
+          <p className="text-xs sm:text-sm">🏸🌟🎉</p>
         </div>
       </footer>
     </div>

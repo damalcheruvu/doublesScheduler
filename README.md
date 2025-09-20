@@ -7,17 +7,17 @@ A React-based web application for generating badminton doubles tournament schedu
 - Player input with duplicate validation
 - Configurable courts (1-6) and rounds (1-10)
 - Automated schedule generation using weighted algorithm
-- Export/import player lists as text files
+- Save/Import player lists via file (player_list.txt)
 - Mobile-optimized interface with 24px fonts
 - Print-ready schedule output
 - Partnership and opposition statistics
 
 ## Technical Stack
 
-- **React 18.3.1** with functional components and hooks
-- **Vite 6.0.3** for build tooling and development server
-- **Tailwind CSS 3.4.17** for styling with mobile-first responsive design
-- **TypeScript** support with ESLint and Prettier
+- **React 18** with functional components and hooks
+- **Vite 6** for build tooling and development server
+- **Tailwind CSS 3** for styling with mobile-first responsive design
+- **ESLint + Prettier** for code quality
 - **Vitest** for testing framework
 - **GitHub Pages** deployment
 
@@ -63,8 +63,6 @@ src/
 ## Key Dependencies
 
 - `react` & `react-dom` - Core React framework
-- `clsx` & `tailwind-merge` - Conditional CSS class utilities
-- `lucide-react` - Icon components
 - `gh-pages` - GitHub Pages deployment
 
 ## Build Output
@@ -77,8 +75,23 @@ src/
 
 Requires modern browsers with ES modules support (Chrome 61+, Firefox 60+, Safari 11+).
 
-## Deployment
+## Deployment (GitHub Pages)
 
-Deployed to GitHub Pages at: https://damalcheruvu.github.io/doublesScheduler
+Deployed to: https://damalcheruvu.github.io/doublesScheduler
 
-Deployment is automated via GitHub Actions on push to main branch.
+Manual deploy from local:
+
+```bash
+npm run predeploy   # builds the app
+npm run deploy      # pushes dist/ to gh-pages branch
+```
+
+Ensure the repository settings point Pages to the `gh-pages` branch (root).
+
+## Save/Import Players (File)
+
+- Save: Click the "Save" button to download `player_list.txt` with your current players (one name per line).
+- Import: Click "Import" and select a previous `player_list.txt` to load players next time.
+- Notes:
+  - The file is portable across devices/browsers.
+  - Clearing the players box does not delete any files; just re-import when needed.

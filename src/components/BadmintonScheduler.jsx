@@ -1,4 +1,8 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import Toast from './ui/Toast';
+import ConfirmDialog from './ui/ConfirmDialog';
+import { BadmintonManager } from '../lib/scheduler';
+import { findDuplicates } from '../lib/players';
 
 const defaultConfig = {
   maxCourts: 4,
@@ -21,22 +25,12 @@ const BadmintonScheduler = () => {
   const [gamesOnly, setGamesOnly] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('games');
-  const [savedTemplates, setSavedTemplates] = useState([]);
+  
   const [fairnessStats, setFairnessStats] = useState(null);
   const [copyMessage, setCopyMessage] = useState('');
-  const scheduleRef = useRef(null);
+  const [toast, setToast] = useState({ message: '', type: 'info' });
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
-  // Load saved templates on component mount
-  useEffect(() => {
-    const saved = localStorage.getItem('badminton_templates');
-    if (saved) {
-      try {
-        setSavedTemplates(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load templates:', e);
-      }
-    }
-  }, []);
 
   // Enhanced player statistics
   const playerStats = useMemo(() => {
@@ -69,6 +63,10 @@ const BadmintonScheduler = () => {
 
   const printGamesOnly = () => {
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setToast({ message: 'Popup blocked. Please allow popups or use Copy.', type: 'error' });
+      return;
+    }
     printWindow.document.write(`
       <html>
         <head>
@@ -293,564 +291,16 @@ const BadmintonScheduler = () => {
     try {
       await navigator.clipboard.writeText(gamesOnly);
       setCopyMessage('Games copied to clipboard!');
+      setToast({ message: 'Copied to clipboard', type: 'success' });
       setTimeout(() => setCopyMessage(''), 2000); // Hide message after 2 seconds
-    } catch (err) {
+    } catch {
       setCopyMessage('Failed to copy');
+      setToast({ message: 'Failed to copy', type: 'error' });
       setTimeout(() => setCopyMessage(''), 2000);
     }
   };
 
-  // ... continuing from previous code ...
-
-  const findDuplicates = playersText => {
-    const names = playersText
-      .split('\n')
-      .map(p => p.trim())
-      .filter(p => p);
-    const duplicatesMap = new Map();
-
-    names.forEach(name => {
-      const lowercaseName = name.toLowerCase();
-      if (!duplicatesMap.has(lowercaseName)) {
-        duplicatesMap.set(lowercaseName, []);
-      }
-      duplicatesMap.get(lowercaseName).push(name);
-    });
-
-    return Array.from(duplicatesMap.entries()).filter(
-      ([_, names]) => names.length > 1
-    );
-  };
-
-  class BadmintonManager {
-    constructor(maxCourts, maxRounds, printStats, weights) {
-      this.maxCourts = maxCourts;
-      this.maxRounds = maxRounds;
-      this.printStats = printStats;
-      this.players = new Set();
-      this.gameHistory = [];
-      this.playerGameCounts = new Map();
-      this.partnerships = new Map(); // Track partnerships
-      this.oppositions = new Map(); // Track oppositions
-      this.courtAssignments = new Map(); // Track court assignments
-      this.playerRestCounts = new Map();
-      this.partnerHistory = new Map(); // Track partner history
-      this.opponentHistory = new Map(); // Track opponent history
-      this.courtHistory = new Map(); // Track court history
-      this.restHistory = new Map(); // Track rest history
-      this.gamesPlayed = new Map(); // Track games played
-      this.lastRoundPlayers = new Map(); // Track last round players
-      this.weights = weights;
-      this.gamesOnlySchedule = '';
-    }
-
-    loadPlayers(playersText) {
-      const duplicates = findDuplicates(playersText);
-      if (duplicates.length > 0) {
-        const duplicateDetails = duplicates
-          .map(([_, names]) => names.join(', '))
-          .join('\n');
-        throw new Error(
-          `Duplicate names detected!\nPlease add surnames to make these names unique:\n${duplicateDetails}`
-        );
-      }
-
-      this.players = new Set(
-        playersText
-          .split('\n')
-          .map(p => p.trim())
-          .filter(p => p)
-      );
-      if (this.players.size < 4) {
-        throw new Error('Need at least 4 players to create games');
-      }
-    }
-
-    getOrDefault(map, key, defaultValue = new Map()) {
-      if (!map.has(key)) {
-        map.set(key, defaultValue);
-      }
-      return map.get(key);
-    }
-
-    // Track consecutive games for better rest distribution
-    getConsecutiveGames(player, currentRound) {
-      let consecutive = 0;
-      for (let round = currentRound - 1; round >= 1; round--) {
-        const playedInRound = this.lastRoundPlayers.get(`${player}_${round}`);
-        if (playedInRound === true) {
-          consecutive++;
-        } else {
-          break;
-        }
-      }
-      return consecutive;
-    }
-
-    // Enhanced player selection that prioritizes rotation
-    selectOptimalPlayers(availablePlayers, numPlayersNeeded, roundNum) {
-      // Sort players by priority: rest history, game count, consecutive games
-      const playerPriorities = availablePlayers.map(player => {
-        const restCount = this.restHistory.get(player) || 0;
-        const gameCount = this.gamesPlayed.get(player) || 0;
-        const consecutiveRests = this.getConsecutiveRests(player, roundNum);
-        const lastRoundRested = this.lastRoundPlayers.get(player) === false;
-        
-        // Priority score (higher is better)
-        let priority = 0;
-        priority += restCount * 1000; // Prioritize players who have rested more
-        priority -= gameCount * 500;  // Prioritize players with fewer games
-        priority += consecutiveRests * 800; // Prioritize players who have rested consecutively
-        priority += lastRoundRested ? 1200 : 0; // High priority for players who rested last round
-        
-        return { player, priority };
-      });
-
-      // Sort by priority (descending) and select top players
-      playerPriorities.sort((a, b) => b.priority - a.priority);
-      return playerPriorities.slice(0, numPlayersNeeded).map(p => p.player);
-    }
-
-    getConsecutiveRests(player, currentRound) {
-      let consecutive = 0;
-      for (let round = currentRound - 1; round >= 1; round--) {
-        const playedInRound = this.lastRoundPlayers.get(`${player}_${round}`);
-        if (playedInRound === false) {
-          consecutive++;
-        } else {
-          break;
-        }
-      }
-      return consecutive;
-    }
-
-    updateHistory(team1, team2, court) {
-      // Update partnership history
-      for (const team of [team1, team2]) {
-        const teamArr = Array.from(team);
-        for (let i = 0; i < teamArr.length; i++) {
-          for (let j = i + 1; j < teamArr.length; j++) {
-            const p1 = teamArr[i],
-              p2 = teamArr[j];
-            const h1 = this.getOrDefault(this.partnerHistory, p1);
-            const h2 = this.getOrDefault(this.partnerHistory, p2);
-            h1.set(p2, (h1.get(p2) || 0) + 1);
-            h2.set(p1, (h2.get(p1) || 0) + 1);
-
-            // Track partnerships for statistics
-            const partnerKey = [p1, p2].sort().join('-');
-            this.partnerships.set(partnerKey, (this.partnerships.get(partnerKey) || 0) + 1);
-          }
-        }
-      }
-
-      // Update opponent history
-      for (const p1 of team1) {
-        for (const p2 of team2) {
-          const h1 = this.getOrDefault(this.opponentHistory, p1);
-          const h2 = this.getOrDefault(this.opponentHistory, p2);
-          h1.set(p2, (h1.get(p2) || 0) + 1);
-          h2.set(p1, (h2.get(p1) || 0) + 1);
-
-          // Track oppositions for statistics
-          const opponentKey = [p1, p2].sort().join('-');
-          this.oppositions.set(opponentKey, (this.oppositions.get(opponentKey) || 0) + 1);
-        }
-      }
-
-      // Track court assignments
-      for (const player of [...team1, ...team2]) {
-        if (!this.courtAssignments.has(player)) {
-          this.courtAssignments.set(player, new Map());
-        }
-        const playerCourts = this.courtAssignments.get(player);
-        playerCourts.set(court, (playerCourts.get(court) || 0) + 1);
-      }
-
-      // Update court and games history
-      const allPlayers = new Set([...team1, ...team2]);
-      for (const player of allPlayers) {
-        const courtHist = this.getOrDefault(this.courtHistory, player);
-        courtHist.set(court, (courtHist.get(court) || 0) + 1);
-        this.gamesPlayed.set(player, (this.gamesPlayed.get(player) || 0) + 1);
-      }
-    }
-
-    calculateTeamScore(team1, team2, roundNum) {
-      let score = 0;
-      const team1Arr = Array.from(team1);
-      const team2Arr = Array.from(team2);
-
-      // Enhanced partnership penalty with exponential growth for repeated partnerships
-      for (const team of [team1Arr, team2Arr]) {
-        for (let i = 0; i < team.length; i++) {
-          for (let j = i + 1; j < team.length; j++) {
-            const p1 = team[i], p2 = team[j];
-            const partnerCount = this.getOrDefault(this.partnerHistory, p1).get(p2) || 0;
-            // Exponential penalty for repeated partnerships
-            score -= this.weights.PARTNERSHIP * Math.pow(partnerCount + 1, 2);
-          }
-        }
-      }
-
-      // Enhanced opposition tracking with diminishing returns for new interactions
-      for (const p1 of team1) {
-        for (const p2 of team2) {
-          const oppCount = this.getOrDefault(this.opponentHistory, p1).get(p2) || 0;
-          // Exponential penalty for repeated opponents
-          score -= this.weights.OPPOSITION * Math.pow(oppCount + 1, 1.5);
-          
-          // Higher bonus for completely new interactions
-          if (oppCount === 0) {
-            score += this.weights.NEW_INTERACTION * 2;
-          }
-        }
-      }
-
-      // Enhanced game balance with progressive penalties
-      const team1Games = team1Arr.reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
-      const team2Games = team2Arr.reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
-      const gameImbalance = Math.abs(team1Games - team2Games);
-      score -= this.weights.GAME_BALANCE * Math.pow(gameImbalance, 1.8);
-
-      // Bonus for players who rested last round (encourage rotation)
-      const lastRoundBonus = [...team1, ...team2].reduce((bonus, player) => {
-        if (this.lastRoundPlayers.get(player) === false) {
-          return bonus + 500; // Significant bonus for players who rested last round
-        }
-        return bonus;
-      }, 0);
-      score += lastRoundBonus;
-
-      // Penalty for consecutive games (encourage breaks)
-      const consecutiveGamePenalty = [...team1, ...team2].reduce((penalty, player) => {
-        const consecutiveGames = this.getConsecutiveGames(player, roundNum);
-        if (consecutiveGames >= 2) {
-          return penalty + (consecutiveGames * 300); // Increasing penalty
-        }
-        return penalty;
-      }, 0);
-      score -= consecutiveGamePenalty;
-
-      return score;
-    }
-
-    generateRound(roundNum) {
-      let availablePlayers = Array.from(this.players);
-      const numCourts = Math.min(
-        Math.floor(availablePlayers.length / 4),
-        this.maxCourts
-      );
-      const actualPlayersNeeded = numCourts * 4;
-      let restingPlayers = new Set();
-
-      // Enhanced player selection for this round
-      if (availablePlayers.length > actualPlayersNeeded) {
-        // Use enhanced selection algorithm
-        const selectedPlayers = this.selectOptimalPlayers(
-          availablePlayers, 
-          actualPlayersNeeded, 
-          roundNum
-        );
-        
-        restingPlayers = new Set(
-          availablePlayers.filter(p => !selectedPlayers.includes(p))
-        );
-        
-        // Update rest history and tracking
-        restingPlayers.forEach(p => {
-          this.restHistory.set(p, (this.restHistory.get(p) || 0) + 1);
-          this.lastRoundPlayers.set(p, false);
-          this.lastRoundPlayers.set(`${p}_${roundNum}`, false);
-        });
-        
-        availablePlayers = selectedPlayers;
-      }
-
-      // Mark playing players
-      availablePlayers.forEach(p => {
-        this.lastRoundPlayers.set(p, true);
-        this.lastRoundPlayers.set(`${p}_${roundNum}`, true);
-      });
-
-      const bestAssignments = [];
-      const playersPerCourt = 4;
-
-      // Enhanced team generation with better optimisation
-      for (let court = 0; court < numCourts; court++) {
-        const remainingPlayers = availablePlayers.filter(
-          p =>
-            !bestAssignments.some(
-              assignment => assignment[1].has(p) || assignment[2].has(p)
-            )
-        );
-
-        let bestScore = Number.NEGATIVE_INFINITY;
-        let bestTeams = null;
-
-        // Increased iterations for better optimisation
-        const maxIterations = Math.min(100, this.factorial(remainingPlayers.length) / 24);
-        
-        for (let i = 0; i < maxIterations; i++) {
-          const courtPlayers = this.shuffleWithBias(remainingPlayers, roundNum).slice(
-            0,
-            playersPerCourt
-          );
-
-          // Try multiple team combinations for these 4 players
-          const combinations = this.generateTeamCombinations(courtPlayers);
-          
-          for (const [team1, team2] of combinations) {
-            const score = this.calculateTeamScore(team1, team2, roundNum);
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestTeams = [team1, team2];
-            }
-          }
-        }
-
-        if (bestTeams) {
-          bestAssignments.push([court + 1, bestTeams[0], bestTeams[1]]);
-          this.updateHistory(bestTeams[0], bestTeams[1], court + 1);
-        }
-      }
-
-      return [restingPlayers, bestAssignments];
-    }
-
-    shuffle(array) {
-      const newArray = [...array];
-      for (let i = newArray.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-      }
-      return newArray;
-    }
-
-    // Enhanced shuffle that considers player history for better mixing
-    shuffleWithBias(array, roundNum) {
-      const newArray = [...array];
-      
-      // Sort by combination of randomness and strategic factors
-      newArray.sort((a, b) => {
-        const aGames = this.gamesPlayed.get(a) || 0;
-        const bGames = this.gamesPlayed.get(b) || 0;
-        const aConsecutive = this.getConsecutiveGames(a, roundNum);
-        const bConsecutive = this.getConsecutiveGames(b, roundNum);
-        
-        // Weighted random with strategic bias
-        const aWeight = Math.random() + (aGames * 0.1) + (aConsecutive * 0.2);
-        const bWeight = Math.random() + (bGames * 0.1) + (bConsecutive * 0.2);
-        
-        return aWeight - bWeight;
-      });
-      
-      return newArray;
-    }
-
-    // Generate all possible team combinations for 4 players
-    generateTeamCombinations(players) {
-      const combinations = [];
-      const [p1, p2, p3, p4] = players;
-      
-      // All possible ways to split 4 players into 2 teams of 2
-      combinations.push([new Set([p1, p2]), new Set([p3, p4])]);
-      combinations.push([new Set([p1, p3]), new Set([p2, p4])]);
-      combinations.push([new Set([p1, p4]), new Set([p2, p3])]);
-      
-      return combinations;
-    }
-
-    // Simple factorial for small numbers (used for iteration optimisation)
-    factorial(n) {
-      if (n <= 1) return 1;
-      return n * this.factorial(n - 1);
-    }
-
-    generateSchedule() {
-      let output = '';
-      let gamesOutput = '';
-
-      for (let roundNum = 1; roundNum <= this.maxRounds; roundNum++) {
-        const [restingPlayers, courtAssignments] = this.generateRound(roundNum);
-
-        const roundHeader = `Round ${roundNum}`;
-        output += `${roundHeader}\n`;
-        gamesOutput += `${roundHeader}\n`;
-
-        const restingPlayersStr = `Resting Players: ${Array.from(restingPlayers).sort().join(', ')}`;
-        output += `${restingPlayersStr}\n`;
-        gamesOutput += `${restingPlayersStr}\n`;
-
-        for (const [court, team1, team2] of courtAssignments) {
-          const gameStr = `Court ${court}: ${Array.from(team1).sort().join(', ')} vs ${Array.from(team2).sort().join(', ')}\n`;
-          output += gameStr;
-          gamesOutput += gameStr;
-        }
-        output += '-'.repeat(50) + '\n';
-        gamesOutput += '-'.repeat(50) + '\n';
-      }
-
-      this.gamesOnlySchedule = gamesOutput.trim();
-      return output;
-    }
-
-    generatePlayerStats() {
-      let output = '\nPlayer Statistics:\n' + '='.repeat(50) + '\n';
-
-      for (const player of Array.from(this.players).sort()) {
-        output += `\nPlayer: ${player}\n${'-'.repeat(20)}\n`;
-        output += `Games Played: ${this.gamesPlayed.get(player) || 0}\n`;
-        output += `Times Rested: ${this.restHistory.get(player) || 0}\n\n`;
-
-        output += 'Partnership History:\n';
-        const partnerships = Array.from(
-          this.getOrDefault(this.partnerHistory, player).entries()
-        )
-          .filter(([_, count]) => count > 0)
-          .sort(([a1, c1], [a2, c2]) => c2 - c1 || a1.localeCompare(a2));
-        partnerships.forEach(([partner, count]) => {
-          output += `  - with ${partner}: ${count} times\n`;
-        });
-
-        output += '\nOpposition History:\n';
-        const oppositions = Array.from(
-          this.getOrDefault(this.opponentHistory, player).entries()
-        )
-          .filter(([_, count]) => count > 0)
-          .sort(([a1, c1], [a2, c2]) => c2 - c1 || a1.localeCompare(a2));
-        oppositions.forEach(([opponent, count]) => {
-          output += `  - against ${opponent}: ${count} times\n`;
-        });
-
-        output += '\nCourt Distribution:\n';
-        const courts = Array.from(
-          this.getOrDefault(this.courtHistory, player).entries()
-        ).sort(([a, _], [b, __]) => a - b);
-        courts.forEach(([court, count]) => {
-          output += `  - Court ${court}: ${count} times\n`;
-        });
-
-        output += '\n' + '='.repeat(50) + '\n';
-      }
-      return output;
-    }
-
-    // Calculate fairness statistics for display
-    calculateFairnessStats() {
-      // Ensure all required maps are initialized
-      if (!this.partnerships) this.partnerships = new Map();
-      if (!this.oppositions) this.oppositions = new Map();
-      if (!this.courtAssignments) this.courtAssignments = new Map();
-
-      const stats = {
-        partnerships: {
-          total: this.partnerships.size || 0,
-          repeated: 0,
-          maxRepeats: 0,
-          distribution: new Map(),
-          repeatedPairs: [] // Array of {players, count}
-        },
-        oppositions: {
-          total: this.oppositions.size || 0,
-          repeated: 0,
-          maxRepeats: 0,
-          distribution: new Map(),
-          repeatedPairs: [] // Array of {players, count}
-        },
-        courtAssignments: {
-          players: this.courtAssignments.size || 0,
-          distribution: new Map(),
-          mostUsedCourt: { court: 1, count: 0 },
-          leastUsedCourt: { court: 1, count: Infinity }
-        }
-      };
-
-      try {
-        // Analyse partnerships
-        for (const [pair, count] of this.partnerships.entries()) {
-          if (count > 1) {
-            stats.partnerships.repeated++;
-            stats.partnerships.repeatedPairs.push({ players: pair, count });
-          }
-          stats.partnerships.maxRepeats = Math.max(stats.partnerships.maxRepeats, count);
-          
-          if (!stats.partnerships.distribution.has(count)) {
-            stats.partnerships.distribution.set(count, 0);
-          }
-          stats.partnerships.distribution.set(count, stats.partnerships.distribution.get(count) + 1);
-        }
-
-        // Analyse oppositions
-        for (const [pair, count] of this.oppositions.entries()) {
-          if (count > 1) {
-            stats.oppositions.repeated++;
-            stats.oppositions.repeatedPairs.push({ players: pair, count });
-          }
-          stats.oppositions.maxRepeats = Math.max(stats.oppositions.maxRepeats, count);
-          
-          if (!stats.oppositions.distribution.has(count)) {
-            stats.oppositions.distribution.set(count, 0);
-          }
-          stats.oppositions.distribution.set(count, stats.oppositions.distribution.get(count) + 1);
-        }
-
-        // Sort repeated pairs by count (highest first)
-        stats.partnerships.repeatedPairs.sort((a, b) => b.count - a.count);
-        stats.oppositions.repeatedPairs.sort((a, b) => b.count - a.count);
-
-        // Analyse court assignments - count total games per court
-        const courtTotals = new Map();
-        const courtGameCounts = new Map(); // Track actual games (not player assignments)
-        
-        // Count total player assignments per court
-        for (const [player, courts] of this.courtAssignments.entries()) {
-          if (courts && typeof courts.entries === 'function') {
-            for (const [court, count] of courts.entries()) {
-              courtTotals.set(court, (courtTotals.get(court) || 0) + count);
-            }
-          }
-        }
-        
-        // Calculate actual game counts per court (player assignments / 4)
-        for (const [court, playerAssignments] of courtTotals.entries()) {
-          courtGameCounts.set(court, Math.round(playerAssignments / 4));
-        }
-
-        // Only update court stats if we have data
-        if (courtGameCounts.size > 0) {
-          // Store all courts with their game counts for detailed display
-          stats.courtAssignments.allCourts = Array.from(courtGameCounts.entries())
-            .map(([court, count]) => ({ court, count }))
-            .sort((a, b) => a.court - b.court);
-            
-          for (const [court, gameCount] of courtGameCounts.entries()) {
-            if (gameCount > stats.courtAssignments.mostUsedCourt.count) {
-              stats.courtAssignments.mostUsedCourt = { court, count: gameCount };
-            }
-            if (gameCount < stats.courtAssignments.leastUsedCourt.count) {
-              stats.courtAssignments.leastUsedCourt = { court, count: gameCount };
-            }
-          }
-        } else {
-          // Reset to safe defaults if no court data
-          stats.courtAssignments.leastUsedCourt = { court: 1, count: 0 };
-          stats.courtAssignments.allCourts = [];
-        }
-      } catch (error) {
-        console.error('Error calculating fairness stats:', error);
-        // Return safe defaults on error
-        return {
-          partnerships: { total: 0, repeated: 0, maxRepeats: 0, distribution: new Map(), repeatedPairs: [] },
-          oppositions: { total: 0, repeated: 0, maxRepeats: 0, distribution: new Map(), repeatedPairs: [] },
-          courtAssignments: { players: 0, distribution: new Map(), mostUsedCourt: { court: 1, count: 0 }, leastUsedCourt: { court: 1, count: 0 }, allCourts: [] }
-        };
-      }
-
-      return stats;
-    }
-  }
+  // findDuplicates moved to lib
 
   // Enhanced player validation with better error messages
   const validatePlayers = useCallback(playersText => {
@@ -866,9 +316,9 @@ const BadmintonScheduler = () => {
       );
     }
 
-    if (playerList.length > 50) {
+    if (playerList.length > 25) {
       errors.push(
-        `⚠️ Maximum 50 players supported (currently ${playerList.length})`
+        `⚠️ Maximum 25 players supported (currently ${playerList.length})`
       );
     }
 
@@ -899,13 +349,8 @@ const BadmintonScheduler = () => {
       // Simulate processing delay for better UX
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const manager = new BadmintonManager(
-        maxCourts,
-        maxRounds,
-        false, // printStats - always false since we show stats in separate tab
-        defaultConfig.weights
-      );
-      manager.loadPlayers(players);
+      const manager = new BadmintonManager(maxCourts, maxRounds, defaultConfig.weights);
+      manager.loadPlayers(players, findDuplicates);
       const output = manager.generateSchedule();
       const fairnessData = manager.calculateFairnessStats();
       
@@ -920,90 +365,45 @@ const BadmintonScheduler = () => {
     } finally {
       setIsGenerating(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players, maxCourts, maxRounds, validatePlayers]);
 
   // Clear players functionality
   const clearPlayers = useCallback(() => {
-    if (confirm('Are you sure you want to clear all players? This action cannot be undone.')) {
-      setPlayers('');
-      setSchedule('');
-      setGamesOnly('');
-      setError('');
-    }
+    setConfirmClearOpen(true);
   }, []);
 
-  // Export players functionality - Mobile compatible
-  const exportPlayers = useCallback(() => {
-    if (!players.trim()) {
-      alert('No players to export. Please add some players first.');
+  const onConfirmClear = useCallback(() => {
+    setConfirmClearOpen(false);
+    setPlayers('');
+    setSchedule('');
+    setGamesOnly('');
+    setError('');
+    setToast({ message: 'Players cleared', type: 'success' });
+  }, []);
+
+  // Save players as a file download (player_list.txt)
+  const savePlayersToFile = useCallback(() => {
+    const text = players.trim();
+    if (!text) {
+      setToast({ message: 'No players to save', type: 'error' });
       return;
     }
     try {
-      const text = players;
-      const filename = 'badminton_players.txt';
-      
-      // Check if we're on mobile
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      
-      if (isMobile && navigator.share) {
-        // Use Web Share API on mobile if available
-        navigator.share({
-          title: 'Badminton Players',
-          text: text,
-          files: [new File([text], filename, { type: 'text/plain' })]
-        }).catch(() => {
-          // Fallback to clipboard if sharing fails
-          fallbackToClipboard(text);
-        });
-      } else if (navigator.clipboard && window.isSecureContext) {
-        // Fallback to clipboard for mobile browsers without share API
-        navigator.clipboard.writeText(text).then(() => {
-          alert('Players copied to clipboard! You can paste this into a text file.');
-        }).catch(() => {
-          downloadFile(text, filename);
-        });
-      } else {
-        // Traditional download for desktop or older browsers
-        downloadFile(text, filename);
-      }
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'player_list.txt';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setToast({ message: 'Downloaded player_list.txt', type: 'success' });
     } catch (error) {
-      alert('Error exporting players: ' + error.message);
+      setToast({ message: 'Failed to download: ' + error.message, type: 'error' });
     }
   }, [players]);
-
-  // Helper function for file download
-  const downloadFile = (text, filename) => {
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // Helper function for clipboard fallback
-  const fallbackToClipboard = (text) => {
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-999999px';
-    textArea.style.top = '-999999px';
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-      document.execCommand('copy');
-      alert('Players copied to clipboard! You can paste this into a text file.');
-    } catch (err) {
-      alert('Unable to export. Please manually copy the player names from the text box.');
-    }
-    document.body.removeChild(textArea);
-  };
 
   // Import players functionality - Mobile compatible
   const importPlayers = useCallback(event => {
@@ -1016,7 +416,7 @@ const BadmintonScheduler = () => {
                         file.type === 'application/octet-stream'; // Some mobile browsers use this for .txt
       
       if (!isTextFile) {
-        alert('Please select a text file (.txt)');
+        setToast({ message: 'Please select a .txt file', type: 'error' });
         event.target.value = '';
         return;
       }
@@ -1031,25 +431,23 @@ const BadmintonScheduler = () => {
             // Trigger validation after importing
             const errors = validatePlayers(content);
             setError(errors.join('\n'));
-            
-            alert('Players imported successfully!');
+            setToast({ message: 'Players imported successfully', type: 'success' });
           } else {
-            alert('Error: Invalid file content');
+            setToast({ message: 'Invalid file content', type: 'error' });
           }
           event.target.value = ''; // Reset file input
         };
         reader.onerror = () => {
-          alert('Error reading file. Please try again.');
+          setToast({ message: 'Error reading file', type: 'error' });
           event.target.value = '';
         };
         reader.readAsText(file);
       } catch (error) {
-        alert('Error importing players: ' + error.message);
+        setToast({ message: 'Import failed: ' + error.message, type: 'error' });
         event.target.value = '';
       }
     }
   }, [validatePlayers]);
-
   const handlePlayersChange = useCallback(
     e => {
       const newValue = e.target.value;
@@ -1060,7 +458,6 @@ const BadmintonScheduler = () => {
     },
     [validatePlayers]
   );
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-1 sm:p-4">
       {/* Maximized Player Input Area */}
@@ -1077,10 +474,10 @@ const BadmintonScheduler = () => {
               Clear
             </button>
             <button
-              onClick={exportPlayers}
+              onClick={savePlayersToFile}
               className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3 text-lg font-bold text-blue-700 shadow-sm hover:bg-blue-100 hover:border-blue-300 sm:px-3 sm:py-2 sm:text-base"
             >
-              Export
+              Save
             </button>
             <label className="cursor-pointer rounded-lg border-2 border-green-200 bg-green-50 px-4 py-3 text-lg font-bold text-green-700 shadow-sm hover:bg-green-100 hover:border-green-300 sm:px-3 sm:py-2 sm:text-base">
               Import
@@ -1147,7 +544,7 @@ const BadmintonScheduler = () => {
             <div className="flex items-start space-x-2">
               <span className="text-lg sm:text-base">💡</span>
               <div className="text-lg sm:text-sm text-blue-800">
-                <p>Add players once, then use <strong>Export</strong> to save your list. Next time, just <strong>Import</strong> your saved file!</p>
+                <p>Tap <strong>Save</strong> to download <code>player_list.txt</code>. Next time, use <strong>Import</strong> to load that file.</p>
               </div>
             </div>
           </div>
@@ -1204,7 +601,7 @@ const BadmintonScheduler = () => {
                     : 'text-gray-500'
                 }`}
               >
-                � Statistics
+                📊 Statistics
               </button>
             </div>
           </div>
@@ -1360,6 +757,14 @@ const BadmintonScheduler = () => {
           </div>
         </div>
       )}
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: 'info' })} />
+      <ConfirmDialog
+        open={confirmClearOpen}
+        title="Clear players"
+        message="Are you sure you want to clear all players? This action cannot be undone."
+        onCancel={() => setConfirmClearOpen(false)}
+        onConfirm={onConfirmClear}
+      />
     </div>
   );
 };
