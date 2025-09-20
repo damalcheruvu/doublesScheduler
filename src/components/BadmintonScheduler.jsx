@@ -381,13 +381,59 @@ const BadmintonScheduler = () => {
     setToast({ message: 'Players cleared', type: 'success' });
   }, []);
 
-  // Save players as a file download (player_list.txt)
-  const savePlayersToFile = useCallback(() => {
+  // Save players, overwriting a chosen file when supported (File System Access API), otherwise download
+  const [fileHandle, setFileHandle] = useState(null);
+  const savePlayers = useCallback(async () => {
     const text = players.trim();
     if (!text) {
       setToast({ message: 'No players to save', type: 'error' });
       return;
     }
+    // Progressive enhancement: try File System Access API (Chromium/Edge)
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        let handle = fileHandle;
+        if (!handle) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: 'player_list.txt',
+            types: [
+              {
+                description: 'Text Files',
+                accept: { 'text/plain': ['.txt'] },
+              },
+            ],
+            excludeAcceptAllOption: false,
+          });
+          setFileHandle(handle);
+        }
+
+        // Ensure we have permission
+        if (handle.queryPermission) {
+          const status = await handle.queryPermission({ mode: 'readwrite' });
+          if (status !== 'granted' && handle.requestPermission) {
+            const req = await handle.requestPermission({ mode: 'readwrite' });
+            if (req !== 'granted') {
+              setToast({ message: 'Permission denied to write file', type: 'error' });
+              return;
+            }
+          }
+        }
+
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+        setToast({ message: 'Saved to file', type: 'success' });
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          // user canceled save dialog
+          return;
+        }
+        // Fallthrough to download if FS API fails
+      }
+    }
+
+    // Fallback: download (will append (1) if file exists)
     try {
       const blob = new Blob([text], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
@@ -403,7 +449,7 @@ const BadmintonScheduler = () => {
     } catch (error) {
       setToast({ message: 'Failed to download: ' + error.message, type: 'error' });
     }
-  }, [players]);
+  }, [players, fileHandle]);
 
   // Import players functionality - Mobile compatible
   const importPlayers = useCallback(event => {
@@ -474,7 +520,7 @@ const BadmintonScheduler = () => {
               Clear
             </button>
             <button
-              onClick={savePlayersToFile}
+              onClick={savePlayers}
               className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3 text-lg font-bold text-blue-700 shadow-sm hover:bg-blue-100 hover:border-blue-300 sm:px-3 sm:py-2 sm:text-base"
             >
               Save
