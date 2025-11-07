@@ -5,9 +5,10 @@ import { findDuplicates } from '../../lib/players';
 describe('BadmintonManager', () => {
   const weights = {
     PARTNERSHIP: 1500,
-    OPPOSITION: 600,
+    OPPOSITION: 1200,
     GAME_BALANCE: 300,
-    NEW_INTERACTION: 200,
+    NEW_INTERACTION: 400,
+    COURT_BALANCE: 500,
   };
 
   it('generates a schedule for 8 players, 2 courts, 3 rounds', () => {

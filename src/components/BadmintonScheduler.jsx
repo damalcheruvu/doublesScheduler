@@ -9,10 +9,11 @@ const defaultConfig = {
   maxRounds: 10,
   printStats: false,
   weights: {
-    PARTNERSHIP: 1500,      // Reduced base weight since we use exponential penalty
-    OPPOSITION: 600,        // Reduced base weight since we use exponential penalty  
-    GAME_BALANCE: 300,      // Increased importance of game balance
-    NEW_INTERACTION: 200,   // Reduced since we give double bonus in algorithm
+    PARTNERSHIP: 1500,      // High weight with exponential penalty for repeated partnerships
+    OPPOSITION: 1200,       // Increased to ensure opposition variety (was too low at 600)
+    GAME_BALANCE: 300,      // Moderate importance of game balance
+    NEW_INTERACTION: 400,   // Increased bonus for new oppositions to encourage variety
+    COURT_BALANCE: 500,     // Penalty for uneven court distribution across players
   },
 };
 
@@ -781,8 +782,38 @@ const BadmintonScheduler = () => {
                       )}
                     </div>
 
+                    {/* Court Balance */}
+                    <div className="mb-4 rounded bg-blue-50 p-3 border border-blue-200">
+                      <h5 className="mb-2 text-lg sm:text-base font-bold text-blue-900">🏟️ Court Distribution</h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-lg sm:text-sm">
+                        <div>
+                          <span className="font-medium">Total players:</span> {fairnessStats.courtAssignments.players}
+                        </div>
+                        <div>
+                          <span className="font-medium">Courts used:</span> {fairnessStats.courtAssignments.allCourts?.length || 0}
+                        </div>
+                      </div>
+                      {fairnessStats.courtAssignments.allCourts && fairnessStats.courtAssignments.allCourts.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-blue-200">
+                          <div className="text-lg sm:text-base font-bold text-blue-800 mb-1">Games per court:</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {fairnessStats.courtAssignments.allCourts.map((courtInfo, index) => (
+                              <div key={index} className="text-lg sm:text-sm text-blue-700">
+                                Court {courtInfo.court}: <span className="font-semibold">{courtInfo.count} games</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 text-lg sm:text-sm text-blue-600">
+                            <span className="font-medium">Most used:</span> Court {fairnessStats.courtAssignments.mostUsedCourt.court} ({fairnessStats.courtAssignments.mostUsedCourt.count} games)
+                            {' • '}
+                            <span className="font-medium">Least used:</span> Court {fairnessStats.courtAssignments.leastUsedCourt.court} ({fairnessStats.courtAssignments.leastUsedCourt.count} games)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="mt-3 text-lg sm:text-sm text-gray-500 italic">
-                      💡 This analysis shows how fairly the algorithm distributed partnerships and oppositions. Green indicates optimal fairness.
+                      💡 This analysis shows how fairly the algorithm distributed partnerships, oppositions, and court assignments. Green indicates optimal fairness.
                     </div>
                   </div>
                 )}

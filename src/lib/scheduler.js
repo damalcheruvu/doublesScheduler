@@ -98,6 +98,8 @@ export class BadmintonManager {
     return consecutive;
   }
 
+
+
   updateHistory(team1, team2, court) {
     for (const team of [team1, team2]) {
       const teamArr = Array.from(team);
@@ -167,9 +169,11 @@ export class BadmintonManager {
     for (const p1 of team1) {
       for (const p2 of team2) {
         const oppCount = this.getOrDefault(this.opponentHistory, p1).get(p2) || 0;
-        score -= this.weights.OPPOSITION * Math.pow(oppCount + 1, 1.5);
+        // Use exponential penalty (power of 2) to heavily penalize repeated oppositions
+        score -= this.weights.OPPOSITION * Math.pow(oppCount + 1, 2);
         if (oppCount === 0) {
-          score += this.weights.NEW_INTERACTION * 2;
+          // Triple bonus for new oppositions to encourage variety
+          score += this.weights.NEW_INTERACTION * 3;
         }
       }
     }
@@ -199,7 +203,26 @@ export class BadmintonManager {
     return score;
   }
 
-  generateRound(roundNum, iterationCap = 50) {
+  calculateCourtScore(players, courtNum) {
+    let score = 0;
+    
+    for (const player of players) {
+      const courtHist = this.getOrDefault(this.courtHistory, player);
+      const timesOnThisCourt = courtHist.get(courtNum) || 0;
+      
+      // Penalize heavily if player has played on this court multiple times
+      score -= this.weights.COURT_BALANCE * Math.pow(timesOnThisCourt, 2);
+      
+      // Bonus if this is a new court for the player
+      if (timesOnThisCourt === 0) {
+        score += this.weights.COURT_BALANCE * 0.5;
+      }
+    }
+    
+    return score;
+  }
+
+  generateRound(roundNum, iterationCap = 100) {
     let availablePlayers = Array.from(this.players);
     const numCourts = Math.min(Math.floor(availablePlayers.length / 4), this.maxCourts);
     const actualPlayersNeeded = numCourts * 4;
@@ -238,14 +261,18 @@ export class BadmintonManager {
       let bestScore = Number.NEGATIVE_INFINITY;
       let bestTeams = null;
 
-      const iterations = Math.min(iterationCap, Math.max(10, remainingPlayers.length * 3));
+      // Increased multiplier from 3 to 5 to explore more combinations for better opposition variety
+      const iterations = Math.min(iterationCap, Math.max(15, remainingPlayers.length * 5));
       for (let i = 0; i < iterations; i++) {
         const courtPlayers = this.shuffleWithBias(remainingPlayers, roundNum).slice(0, playersPerCourt);
         const combinations = this.generateTeamCombinations(courtPlayers);
         for (const [team1, team2] of combinations) {
-          const score = this.calculateTeamScore(team1, team2, roundNum);
-          if (score > bestScore) {
-            bestScore = score;
+          const teamScore = this.calculateTeamScore(team1, team2, roundNum);
+          const courtScore = this.calculateCourtScore([...team1, ...team2], court + 1);
+          const totalScore = teamScore + courtScore;
+          
+          if (totalScore > bestScore) {
+            bestScore = totalScore;
             bestTeams = [team1, team2];
           }
         }
@@ -267,8 +294,16 @@ export class BadmintonManager {
       const bGames = this.gamesPlayed.get(b) || 0;
       const aConsecutive = this.getConsecutiveGames(a, roundNum);
       const bConsecutive = this.getConsecutiveGames(b, roundNum);
-      const aWeight = Math.random() + aGames * 0.1 + aConsecutive * 0.2;
-      const bWeight = Math.random() + bGames * 0.1 + bConsecutive * 0.2;
+      
+      // Calculate opposition diversity score (how many unique opponents)
+      const aOpponents = this.getOrDefault(this.opponentHistory, a);
+      const bOpponents = this.getOrDefault(this.opponentHistory, b);
+      const aUniqueOpponents = aOpponents.size;
+      const bUniqueOpponents = bOpponents.size;
+      
+      // Favor players with fewer games, consecutive rests, and fewer unique opponents
+      const aWeight = Math.random() + aGames * 0.1 + aConsecutive * 0.2 - aUniqueOpponents * 0.05;
+      const bWeight = Math.random() + bGames * 0.1 + bConsecutive * 0.2 - bUniqueOpponents * 0.05;
       return aWeight - bWeight;
     });
     return newArray;
