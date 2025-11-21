@@ -19,6 +19,10 @@ export class BadmintonManager {
     this.lastRoundPlayers = new Map();
     this.weights = weights;
     this.gamesOnlySchedule = '';
+
+    // Add opposition diversity tracking
+    this.opponentDiversityScore = new Map(); // player -> diversity score
+    this.oppositionHistorySet = new Map(); // player -> set of opponents faced
   }
 
   loadPlayers(playersText, findDuplicatesFn) {
@@ -71,12 +75,17 @@ export class BadmintonManager {
       const gameCount = this.gamesPlayed.get(player) || 0;
       const consecutiveRests = this.getConsecutiveRests(player, roundNum);
       const lastRoundRested = this.lastRoundPlayers.get(player) === false;
+      const oppositionDiversityScore =
+        this.opponentDiversityScore.get(player) || 0;
 
       let priority = 0;
       priority += restCount * 1000;
       priority -= gameCount * 500;
       priority += consecutiveRests * 800;
       priority += lastRoundRested ? 1200 : 0;
+      // Boost priority for players with high repeated opposition scores (>0.5 means many repeats)
+      priority +=
+        oppositionDiversityScore > 0.5 ? oppositionDiversityScore * 500 : 0;
 
       return { player, priority };
     });
@@ -103,7 +112,8 @@ export class BadmintonManager {
       const teamArr = Array.from(team);
       for (let i = 0; i < teamArr.length; i++) {
         for (let j = i + 1; j < teamArr.length; j++) {
-          const p1 = teamArr[i], p2 = teamArr[j];
+          const p1 = teamArr[i],
+            p2 = teamArr[j];
           const h1 = this.getOrDefault(this.partnerHistory, p1);
           const h2 = this.getOrDefault(this.partnerHistory, p2);
           h1.set(p2, (h1.get(p2) || 0) + 1);
@@ -124,6 +134,16 @@ export class BadmintonManager {
         const h2 = this.getOrDefault(this.opponentHistory, p2);
         h1.set(p2, (h1.get(p2) || 0) + 1);
         h2.set(p1, (h2.get(p1) || 0) + 1);
+
+        // Update opposition history sets
+        if (!this.oppositionHistorySet.has(p1)) {
+          this.oppositionHistorySet.set(p1, new Set());
+        }
+        if (!this.oppositionHistorySet.has(p2)) {
+          this.oppositionHistorySet.set(p2, new Set());
+        }
+        this.oppositionHistorySet.get(p1).add(p2);
+        this.oppositionHistorySet.get(p2).add(p1);
 
         const opponentKey = [p1, p2].sort().join('-');
         this.oppositions.set(
@@ -146,6 +166,26 @@ export class BadmintonManager {
       const courtHist = this.getOrDefault(this.courtHistory, player);
       courtHist.set(court, (courtHist.get(court) || 0) + 1);
       this.gamesPlayed.set(player, (this.gamesPlayed.get(player) || 0) + 1);
+
+      // Calculate diversity score: lower score means more diverse oppositions
+      const opponentSet = this.oppositionHistorySet.get(player);
+      if (opponentSet && opponentSet.size > 0) {
+        // Count repeated oppositions for this player
+        let repeatedOppCount = 0;
+        for (const opp of opponentSet) {
+          const oppCount =
+            this.getOrDefault(this.opponentHistory, player).get(opp) || 0;
+          if (oppCount > 1) {
+            repeatedOppCount += oppCount - 1; // Add extra counts beyond first
+          }
+        }
+        this.opponentDiversityScore.set(
+          player,
+          repeatedOppCount / opponentSet.size
+        );
+      } else {
+        this.opponentDiversityScore.set(player, 0);
+      }
     }
   }
 
@@ -157,8 +197,10 @@ export class BadmintonManager {
     for (const team of [team1Arr, team2Arr]) {
       for (let i = 0; i < team.length; i++) {
         for (let j = i + 1; j < team.length; j++) {
-          const p1 = team[i], p2 = team[j];
-          const partnerCount = this.getOrDefault(this.partnerHistory, p1).get(p2) || 0;
+          const p1 = team[i],
+            p2 = team[j];
+          const partnerCount =
+            this.getOrDefault(this.partnerHistory, p1).get(p2) || 0;
           score -= this.weights.PARTNERSHIP * Math.pow(partnerCount + 1, 2);
         }
       }
@@ -166,16 +208,24 @@ export class BadmintonManager {
 
     for (const p1 of team1) {
       for (const p2 of team2) {
-        const oppCount = this.getOrDefault(this.opponentHistory, p1).get(p2) || 0;
-        score -= this.weights.OPPOSITION * Math.pow(oppCount + 1, 1.5);
+        const oppCount =
+          this.getOrDefault(this.opponentHistory, p1).get(p2) || 0;
+        // More aggressive opposition penalty with higher exponent
+        score -= this.weights.OPPOSITION * Math.pow(oppCount + 1, 2);
         if (oppCount === 0) {
           score += this.weights.NEW_INTERACTION * 2;
         }
       }
     }
 
-    const team1Games = team1Arr.reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
-    const team2Games = team2Arr.reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
+    const team1Games = team1Arr.reduce(
+      (sum, p) => sum + (this.gamesPlayed.get(p) || 0),
+      0
+    );
+    const team2Games = team2Arr.reduce(
+      (sum, p) => sum + (this.gamesPlayed.get(p) || 0),
+      0
+    );
     const gameImbalance = Math.abs(team1Games - team2Games);
     score -= this.weights.GAME_BALANCE * Math.pow(gameImbalance, 1.8);
 
@@ -187,21 +237,50 @@ export class BadmintonManager {
     }, 0);
     score += lastRoundBonus;
 
-    const consecutiveGamePenalty = [...team1, ...team2].reduce((penalty, player) => {
-      const consecutiveGames = this.getConsecutiveGames(player, roundNum);
-      if (consecutiveGames >= 2) {
-        return penalty + consecutiveGames * 300;
-      }
-      return penalty;
-    }, 0);
+    const consecutiveGamePenalty = [...team1, ...team2].reduce(
+      (penalty, player) => {
+        const consecutiveGames = this.getConsecutiveGames(player, roundNum);
+        if (consecutiveGames >= 2) {
+          return penalty + consecutiveGames * 300;
+        }
+        return penalty;
+      },
+      0
+    );
     score -= consecutiveGamePenalty;
+
+    // Additional opposition diversity bonus for avoiding players with many repeated oppositions
+    const allPlayers = [...team1Arr, ...team2Arr];
+    for (const player of allPlayers) {
+      const opponentSet = this.oppositionHistorySet.get(player);
+      if (opponentSet && opponentSet.size > 0) {
+        const totalOpponents = opponentSet.size;
+        const uniqueOpponentsInGame = new Set();
+        // Count how many opponents in this game are new
+        for (const opp of [...team1Arr, ...team2Arr]) {
+          if (opp !== player) {
+            uniqueOpponentsInGame.add(opp);
+          }
+        }
+        const newOpponentsInGame = [...uniqueOpponentsInGame].filter(
+          opp => !opponentSet.has(opp)
+        ).length;
+        if (newOpponentsInGame > 0 && totalOpponents > 2) {
+          // Only add bonus if player already has some opponents
+          score += newOpponentsInGame * 100; // Bonus for introducing new opponents
+        }
+      }
+    }
 
     return score;
   }
 
   generateRound(roundNum, iterationCap = 50) {
     let availablePlayers = Array.from(this.players);
-    const numCourts = Math.min(Math.floor(availablePlayers.length / 4), this.maxCourts);
+    const numCourts = Math.min(
+      Math.floor(availablePlayers.length / 4),
+      this.maxCourts
+    );
     const actualPlayersNeeded = numCourts * 4;
     let restingPlayers = new Set();
 
@@ -212,7 +291,9 @@ export class BadmintonManager {
         roundNum
       );
 
-      restingPlayers = new Set(availablePlayers.filter(p => !selectedPlayers.includes(p)));
+      restingPlayers = new Set(
+        availablePlayers.filter(p => !selectedPlayers.includes(p))
+      );
       restingPlayers.forEach(p => {
         this.restHistory.set(p, (this.restHistory.get(p) || 0) + 1);
         this.lastRoundPlayers.set(p, false);
@@ -238,9 +319,15 @@ export class BadmintonManager {
       let bestScore = Number.NEGATIVE_INFINITY;
       let bestTeams = null;
 
-      const iterations = Math.min(iterationCap, Math.max(10, remainingPlayers.length * 3));
+      const iterations = Math.min(
+        iterationCap,
+        Math.max(10, remainingPlayers.length * 3)
+      );
       for (let i = 0; i < iterations; i++) {
-        const courtPlayers = this.shuffleWithBias(remainingPlayers, roundNum).slice(0, playersPerCourt);
+        const courtPlayers = this.shuffleWithBias(
+          remainingPlayers,
+          roundNum
+        ).slice(0, playersPerCourt);
         const combinations = this.generateTeamCombinations(courtPlayers);
         for (const [team1, team2] of combinations) {
           const score = this.calculateTeamScore(team1, team2, roundNum);
@@ -342,7 +429,10 @@ export class BadmintonManager {
           stats.partnerships.repeated++;
           stats.partnerships.repeatedPairs.push({ players: pair, count });
         }
-        stats.partnerships.maxRepeats = Math.max(stats.partnerships.maxRepeats, count);
+        stats.partnerships.maxRepeats = Math.max(
+          stats.partnerships.maxRepeats,
+          count
+        );
         if (!stats.partnerships.distribution.has(count)) {
           stats.partnerships.distribution.set(count, 0);
         }
@@ -357,7 +447,10 @@ export class BadmintonManager {
           stats.oppositions.repeated++;
           stats.oppositions.repeatedPairs.push({ players: pair, count });
         }
-        stats.oppositions.maxRepeats = Math.max(stats.oppositions.maxRepeats, count);
+        stats.oppositions.maxRepeats = Math.max(
+          stats.oppositions.maxRepeats,
+          count
+        );
         if (!stats.oppositions.distribution.has(count)) {
           stats.oppositions.distribution.set(count, 0);
         }

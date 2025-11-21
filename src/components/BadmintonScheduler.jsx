@@ -9,10 +9,10 @@ const defaultConfig = {
   maxRounds: 10,
   printStats: false,
   weights: {
-    PARTNERSHIP: 1500,      // Reduced base weight since we use exponential penalty
-    OPPOSITION: 600,        // Reduced base weight since we use exponential penalty  
-    GAME_BALANCE: 300,      // Increased importance of game balance
-    NEW_INTERACTION: 200,   // Reduced since we give double bonus in algorithm
+    PARTNERSHIP: 1500, // Base weight for partnership penalty
+    OPPOSITION: 1200, // Increased base weight to penalize repeated oppositions more heavily
+    GAME_BALANCE: 300, // Weight for game count balance
+    NEW_INTERACTION: 400, // Increased bonus for new interactions
   },
 };
 
@@ -25,12 +25,11 @@ const BadmintonScheduler = () => {
   const [gamesOnly, setGamesOnly] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('games');
-  
+
   const [fairnessStats, setFairnessStats] = useState(null);
   const [copyMessage, setCopyMessage] = useState('');
   const [toast, setToast] = useState({ message: '', type: 'info' });
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-
 
   // Enhanced player statistics
   const playerStats = useMemo(() => {
@@ -64,7 +63,10 @@ const BadmintonScheduler = () => {
   const printGamesOnly = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      setToast({ message: 'Popup blocked. Please allow popups or use Copy.', type: 'error' });
+      setToast({
+        message: 'Popup blocked. Please allow popups or use Copy.',
+        type: 'error',
+      });
       return;
     }
     printWindow.document.write(`
@@ -231,12 +233,15 @@ const BadmintonScheduler = () => {
           <div class="page-container">
             <div class="tournament-header">
               <h1 class="tournament-title">🏸 Badminton Tournament Schedule</h1>
-              <p class="tournament-date">Generated on ${new Date().toLocaleDateString('en-GB', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}</p>
+              <p class="tournament-date">Generated on ${new Date().toLocaleDateString(
+                'en-GB',
+                {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                }
+              )}</p>
             </div>
             ${gamesOnly
               .split(/Round \d+/)
@@ -244,24 +249,32 @@ const BadmintonScheduler = () => {
               .map((section, index) => {
                 const restingMatch = section.match(/Resting Players: (.*)\n/);
                 const restingPlayers = restingMatch ? restingMatch[1] : '';
-                
-                const courtMatches = section.match(/Court (\d+): (.*?) vs (.*?)(?=\n|$)/g) || [];
-                
+
+                const courtMatches =
+                  section.match(/Court (\d+): (.*?) vs (.*?)(?=\n|$)/g) || [];
+
                 return `
                 <div class="round">
                   <div class="round-header">Round ${index + 1}</div>
-                  ${restingPlayers ? `
+                  ${
+                    restingPlayers
+                      ? `
                     <div class="resting-section">
                       <div class="resting-label">Resting Players</div>
                       <div class="resting-players">${restingPlayers}</div>
                     </div>
-                  ` : ''}
+                  `
+                      : ''
+                  }
                   <div class="courts-container">
-                    ${courtMatches.map(court => {
-                      const courtMatch = court.match(/Court (\d+): (.*?) vs (.*?)$/);
-                      if (courtMatch) {
-                        const [, courtNum, team1, team2] = courtMatch;
-                        return `
+                    ${courtMatches
+                      .map(court => {
+                        const courtMatch = court.match(
+                          /Court (\d+): (.*?) vs (.*?)$/
+                        );
+                        if (courtMatch) {
+                          const [, courtNum, team1, team2] = courtMatch;
+                          return `
                           <div class="court-game">
                             <div class="court-number">Court ${courtNum}</div>
                             <div class="player-names">
@@ -271,9 +284,10 @@ const BadmintonScheduler = () => {
                             </div>
                           </div>
                         `;
-                      }
-                      return '';
-                    }).join('')}
+                        }
+                        return '';
+                      })
+                      .join('')}
                   </div>
                 </div>
                 `;
@@ -349,11 +363,15 @@ const BadmintonScheduler = () => {
       // Simulate processing delay for better UX
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const manager = new BadmintonManager(maxCourts, maxRounds, defaultConfig.weights);
+      const manager = new BadmintonManager(
+        maxCourts,
+        maxRounds,
+        defaultConfig.weights
+      );
       manager.loadPlayers(players, findDuplicates);
       const output = manager.generateSchedule();
       const fairnessData = manager.calculateFairnessStats();
-      
+
       setSchedule(output);
       setGamesOnly(manager.gamesOnlySchedule);
       setFairnessStats(fairnessData);
@@ -413,7 +431,10 @@ const BadmintonScheduler = () => {
           if (status !== 'granted' && handle.requestPermission) {
             const req = await handle.requestPermission({ mode: 'readwrite' });
             if (req !== 'granted') {
-              setToast({ message: 'Permission denied to write file', type: 'error' });
+              setToast({
+                message: 'Permission denied to write file',
+                type: 'error',
+              });
               return;
             }
           }
@@ -447,53 +468,66 @@ const BadmintonScheduler = () => {
       URL.revokeObjectURL(url);
       setToast({ message: 'Downloaded player_list.txt', type: 'success' });
     } catch (error) {
-      setToast({ message: 'Failed to download: ' + error.message, type: 'error' });
+      setToast({
+        message: 'Failed to download: ' + error.message,
+        type: 'error',
+      });
     }
   }, [players, fileHandle]);
 
   // Import players functionality - Mobile compatible
-  const importPlayers = useCallback(event => {
-    const file = event.target.files[0];
-    if (file) {
-      // More lenient file type checking for mobile
-      const isTextFile = file.type === 'text/plain' || 
-                        file.name.endsWith('.txt') || 
-                        file.type === '' || // Some mobile browsers don't set type
-                        file.type === 'application/octet-stream'; // Some mobile browsers use this for .txt
-      
-      if (!isTextFile) {
-        setToast({ message: 'Please select a .txt file', type: 'error' });
-        event.target.value = '';
-        return;
-      }
-      
-      try {
-        const reader = new FileReader();
-        reader.onload = e => {
-          const content = e.target.result;
-          if (typeof content === 'string') {
-            setPlayers(content);
-            
-            // Trigger validation after importing
-            const errors = validatePlayers(content);
-            setError(errors.join('\n'));
-            setToast({ message: 'Players imported successfully', type: 'success' });
-          } else {
-            setToast({ message: 'Invalid file content', type: 'error' });
-          }
-          event.target.value = ''; // Reset file input
-        };
-        reader.onerror = () => {
-          setToast({ message: 'Error reading file', type: 'error' });
+  const importPlayers = useCallback(
+    event => {
+      const file = event.target.files[0];
+      if (file) {
+        // More lenient file type checking for mobile
+        const isTextFile =
+          file.type === 'text/plain' ||
+          file.name.endsWith('.txt') ||
+          file.type === '' || // Some mobile browsers don't set type
+          file.type === 'application/octet-stream'; // Some mobile browsers use this for .txt
+
+        if (!isTextFile) {
+          setToast({ message: 'Please select a .txt file', type: 'error' });
           event.target.value = '';
-        };
-        reader.readAsText(file);
-      } catch (error) {
-        setToast({ message: 'Import failed: ' + error.message, type: 'error' });
-        event.target.value = '';
+          return;
+        }
+
+        try {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const content = e.target.result;
+            if (typeof content === 'string') {
+              setPlayers(content);
+
+              // Trigger validation after importing
+              const errors = validatePlayers(content);
+              setError(errors.join('\n'));
+              setToast({
+                message: 'Players imported successfully',
+                type: 'success',
+              });
+            } else {
+              setToast({ message: 'Invalid file content', type: 'error' });
+            }
+            event.target.value = ''; // Reset file input
+          };
+          reader.onerror = () => {
+            setToast({ message: 'Error reading file', type: 'error' });
+            event.target.value = '';
+          };
+          reader.readAsText(file);
+        } catch (error) {
+          setToast({
+            message: 'Import failed: ' + error.message,
+            type: 'error',
+          });
+          event.target.value = '';
+        }
       }
-    }
-  }, [validatePlayers]);
+    },
+    [validatePlayers]
+  );
   const handlePlayersChange = useCallback(
     e => {
       const newValue = e.target.value;
@@ -515,17 +549,17 @@ const BadmintonScheduler = () => {
           <div className="flex space-x-3">
             <button
               onClick={clearPlayers}
-              className="rounded-lg border-2 border-red-200 bg-red-50 px-4 py-3 text-lg font-bold text-red-700 shadow-sm hover:bg-red-100 hover:border-red-300 sm:px-3 sm:py-2 sm:text-base"
+              className="rounded-lg border-2 border-red-200 bg-red-50 px-4 py-3 text-lg font-bold text-red-700 shadow-sm hover:border-red-300 hover:bg-red-100 sm:px-3 sm:py-2 sm:text-base"
             >
               Clear
             </button>
             <button
               onClick={savePlayers}
-              className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3 text-lg font-bold text-blue-700 shadow-sm hover:bg-blue-100 hover:border-blue-300 sm:px-3 sm:py-2 sm:text-base"
+              className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3 text-lg font-bold text-blue-700 shadow-sm hover:border-blue-300 hover:bg-blue-100 sm:px-3 sm:py-2 sm:text-base"
             >
               Save
             </button>
-            <label className="cursor-pointer rounded-lg border-2 border-green-200 bg-green-50 px-4 py-3 text-lg font-bold text-green-700 shadow-sm hover:bg-green-100 hover:border-green-300 sm:px-3 sm:py-2 sm:text-base">
+            <label className="cursor-pointer rounded-lg border-2 border-green-200 bg-green-50 px-4 py-3 text-lg font-bold text-green-700 shadow-sm hover:border-green-300 hover:bg-green-100 sm:px-3 sm:py-2 sm:text-base">
               Import
               <input
                 id="file-import"
@@ -538,7 +572,7 @@ const BadmintonScheduler = () => {
             </label>
           </div>
         </div>
-        
+
         {/* Maximized textarea for mobile - much taller with bigger font */}
         <textarea
           rows={18}
@@ -548,7 +582,7 @@ const BadmintonScheduler = () => {
           placeholder="Enter player names, one per line..."
           style={{ minHeight: '380px', fontSize: '24px', lineHeight: '1.3' }}
         />
-        
+
         {playerStats.playerCount > 0 && (
           <div className="mt-1 flex justify-between text-lg font-bold text-gray-700 sm:text-base sm:font-semibold sm:text-gray-500">
             <span>{playerStats.playerCount} players</span>
@@ -558,39 +592,51 @@ const BadmintonScheduler = () => {
       </div>
 
       {/* Ultra-Compact Settings */}
-      <div className="mt-4 rounded-lg bg-white border-2 border-gray-200 p-3 shadow-lg sm:mt-5 sm:p-4">
+      <div className="mt-4 rounded-lg border-2 border-gray-200 bg-white p-3 shadow-lg sm:mt-5 sm:p-4">
         <div className="flex items-center justify-between">
           <div className="flex space-x-4">
             <div>
-              <label className="block mb-2 text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">Courts</label>
+              <label className="mb-2 block text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">
+                Courts
+              </label>
               <select
                 className="w-24 rounded-lg border-2 border-gray-300 px-4 py-3 text-lg font-semibold shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:w-16 sm:px-2 sm:py-2 sm:text-base sm:font-normal"
                 value={maxCourts}
                 onChange={e => setMaxCourts(parseInt(e.target.value))}
               >
                 {[1, 2, 3, 4, 5, 6].map(num => (
-                  <option key={num} value={num}>{num}</option>
+                  <option key={num} value={num}>
+                    {num}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block mb-2 text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">Rounds</label>
+              <label className="mb-2 block text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">
+                Rounds
+              </label>
               <select
                 className="w-24 rounded-lg border-2 border-gray-300 px-4 py-3 text-lg font-semibold shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:w-16 sm:px-2 sm:py-2 sm:text-base sm:font-normal"
                 value={maxRounds}
                 onChange={e => setMaxRounds(parseInt(e.target.value))}
               >
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
-                  <option key={num} value={num}>{num}</option>
+                  <option key={num} value={num}>
+                    {num}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
-          <div className="ml-4 rounded-lg bg-blue-50 border border-blue-200 p-3 max-w-xs sm:max-w-sm">
+          <div className="ml-4 max-w-xs rounded-lg border border-blue-200 bg-blue-50 p-3 sm:max-w-sm">
             <div className="flex items-start space-x-2">
               <span className="text-lg sm:text-base">💡</span>
-              <div className="text-lg sm:text-sm text-blue-800">
-                <p>Tap <strong>Save</strong> to download <code>player_list.txt</code>. Next time, use <strong>Import</strong> to load that file.</p>
+              <div className="text-lg text-blue-800 sm:text-sm">
+                <p>
+                  Tap <strong>Save</strong> to download{' '}
+                  <code>player_list.txt</code>. Next time, use{' '}
+                  <strong>Import</strong> to load that file.
+                </p>
               </div>
             </div>
           </div>
@@ -659,24 +705,24 @@ const BadmintonScheduler = () => {
                   <h3 className="text-xl font-bold text-gray-900 sm:text-lg sm:font-semibold">
                     Tournament Schedule
                   </h3>
-                  <div className="flex space-x-4 mb-4">
+                  <div className="mb-4 flex space-x-4">
                     <div className="relative">
                       <button
                         onClick={handleCopyToClipboard}
-                        className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 bg-gray-50 px-5 py-3 text-lg font-bold text-gray-700 shadow-sm hover:bg-gray-100 hover:border-gray-400 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
+                        className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 bg-gray-50 px-5 py-3 text-lg font-bold text-gray-700 shadow-sm hover:border-gray-400 hover:bg-gray-100 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
                       >
                         <span>📋</span>
                         <span>Copy</span>
                       </button>
                       {copyMessage && (
-                        <div className="absolute top-12 left-0 z-10 rounded-lg bg-green-600 px-3 py-2 text-lg text-white shadow-lg sm:text-base">
+                        <div className="absolute left-0 top-12 z-10 rounded-lg bg-green-600 px-3 py-2 text-lg text-white shadow-lg sm:text-base">
                           {copyMessage}
                         </div>
                       )}
                     </div>
                     <button
                       onClick={printGamesOnly}
-                      className="flex items-center space-x-2 rounded-lg border-2 border-blue-300 bg-blue-600 px-5 py-3 text-lg font-bold text-white shadow-sm hover:bg-blue-700 hover:border-blue-400 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
+                      className="flex items-center space-x-2 rounded-lg border-2 border-blue-300 bg-blue-600 px-5 py-3 text-lg font-bold text-white shadow-sm hover:border-blue-400 hover:bg-blue-700 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
                     >
                       <span>🖨️</span>
                       <span>Print</span>
@@ -684,7 +730,14 @@ const BadmintonScheduler = () => {
                   </div>
                 </div>
                 <div className="rounded border bg-gray-50 p-3">
-                  <pre className="overflow-auto text-lg leading-snug sm:max-h-60 sm:text-xs sm:leading-normal" style={{ minHeight: '380px', fontSize: '18px', lineHeight: '1.3' }}>
+                  <pre
+                    className="overflow-auto text-lg leading-snug sm:max-h-60 sm:text-xs sm:leading-normal"
+                    style={{
+                      minHeight: '380px',
+                      fontSize: '18px',
+                      lineHeight: '1.3',
+                    }}
+                  >
                     {gamesOnly}
                   </pre>
                 </div>
@@ -697,101 +750,177 @@ const BadmintonScheduler = () => {
                   Tournament Statistics
                 </h3>
 
-                {fairnessStats && fairnessStats.partnerships && fairnessStats.oppositions && fairnessStats.courtAssignments && (
-                  <div>
-                    <h4 className="mb-3 text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
-                      🎯 Fairness Analysis
-                    </h4>
-                    
-                    {/* Partnership Fairness */}
-                    <div className="mb-4 rounded bg-emerald-50 p-3 border border-emerald-200">
-                      <h5 className="mb-2 text-lg font-bold text-emerald-900 sm:text-xs sm:font-semibold">👥 Partnership Distribution</h5>
-                      <div className="grid grid-cols-1 gap-3 text-lg sm:grid-cols-2 sm:gap-2 sm:text-xs" style={{ fontSize: '18px' }}>
-                        <div>
-                          <span className="font-semibold">Total partnerships:</span> {fairnessStats.partnerships.total}
-                        </div>
-                        <div>
-                          <span className="font-semibold">Repeated partnerships:</span> {fairnessStats.partnerships.repeated}
-                        </div>
-                        <div>
-                          <span className="font-semibold">Max repeats:</span> {fairnessStats.partnerships.maxRepeats} times
-                        </div>
-                        <div>
-                          <span className="font-semibold">Fairness rating:</span> 
-                          <span className={`ml-1 font-bold ${fairnessStats.partnerships.maxRepeats <= 2 ? 'text-green-600' : fairnessStats.partnerships.maxRepeats <= 3 ? 'text-orange-600' : 'text-red-600'}`}>
-                            {fairnessStats.partnerships.maxRepeats <= 2 ? 'Excellent' : fairnessStats.partnerships.maxRepeats <= 3 ? 'Good' : 'Needs attention'}
-                          </span>
-                        </div>
-                      </div>
-                      {fairnessStats.partnerships.repeatedPairs && fairnessStats.partnerships.repeatedPairs.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-emerald-200">
-                          <div className="text-lg sm:text-base font-bold text-emerald-800 mb-1">Repeated partnerships:</div>
-                          <div className="space-y-1">
-                            {fairnessStats.partnerships.repeatedPairs.slice(0, 5).map((pair, index) => (
-                              <div key={index} className="text-lg sm:text-sm text-emerald-700">
-                                • <span className="font-medium">{pair.players}</span> - {pair.count} times
-                              </div>
-                            ))}
-                            {fairnessStats.partnerships.repeatedPairs.length > 5 && (
-                              <div className="text-lg sm:text-sm text-emerald-600 italic">
-                                ... and {fairnessStats.partnerships.repeatedPairs.length - 5} more
-                              </div>
-                            )}
+                {fairnessStats &&
+                  fairnessStats.partnerships &&
+                  fairnessStats.oppositions &&
+                  fairnessStats.courtAssignments && (
+                    <div>
+                      <h4 className="mb-3 text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
+                        🎯 Fairness Analysis
+                      </h4>
+
+                      {/* Partnership Fairness */}
+                      <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 p-3">
+                        <h5 className="mb-2 text-lg font-bold text-emerald-900 sm:text-xs sm:font-semibold">
+                          👥 Partnership Distribution
+                        </h5>
+                        <div
+                          className="grid grid-cols-1 gap-3 text-lg sm:grid-cols-2 sm:gap-2 sm:text-xs"
+                          style={{ fontSize: '18px' }}
+                        >
+                          <div>
+                            <span className="font-semibold">
+                              Total partnerships:
+                            </span>{' '}
+                            {fairnessStats.partnerships.total}
+                          </div>
+                          <div>
+                            <span className="font-semibold">
+                              Repeated partnerships:
+                            </span>{' '}
+                            {fairnessStats.partnerships.repeated}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Max repeats:</span>{' '}
+                            {fairnessStats.partnerships.maxRepeats} times
+                          </div>
+                          <div>
+                            <span className="font-semibold">
+                              Fairness rating:
+                            </span>
+                            <span
+                              className={`ml-1 font-bold ${fairnessStats.partnerships.maxRepeats <= 2 ? 'text-green-600' : fairnessStats.partnerships.maxRepeats <= 3 ? 'text-orange-600' : 'text-red-600'}`}
+                            >
+                              {fairnessStats.partnerships.maxRepeats <= 2
+                                ? 'Excellent'
+                                : fairnessStats.partnerships.maxRepeats <= 3
+                                  ? 'Good'
+                                  : 'Needs attention'}
+                            </span>
                           </div>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Opposition Fairness */}
-                    <div className="mb-4 rounded bg-amber-50 p-3 border border-amber-200">
-                      <h5 className="mb-2 text-lg sm:text-base font-bold text-amber-900">⚔️ Opposition Distribution</h5>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-lg sm:text-sm">
-                        <div>
-                          <span className="font-medium">Total oppositions:</span> {fairnessStats.oppositions.total}
-                        </div>
-                        <div>
-                          <span className="font-medium">Repeated oppositions:</span> {fairnessStats.oppositions.repeated}
-                        </div>
-                        <div>
-                          <span className="font-medium">Max repeats:</span> {fairnessStats.oppositions.maxRepeats} times
-                        </div>
-                        <div>
-                          <span className="font-medium">Fairness rating:</span> 
-                          <span className={`ml-1 font-bold ${fairnessStats.oppositions.maxRepeats <= 2 ? 'text-green-600' : fairnessStats.oppositions.maxRepeats <= 3 ? 'text-orange-600' : 'text-red-600'}`}>
-                            {fairnessStats.oppositions.maxRepeats <= 2 ? 'Excellent' : fairnessStats.oppositions.maxRepeats <= 3 ? 'Good' : 'Needs attention'}
-                          </span>
-                        </div>
+                        {fairnessStats.partnerships.repeatedPairs &&
+                          fairnessStats.partnerships.repeatedPairs.length >
+                            0 && (
+                            <div className="mt-2 border-t border-emerald-200 pt-2">
+                              <div className="mb-1 text-lg font-bold text-emerald-800 sm:text-base">
+                                Repeated partnerships:
+                              </div>
+                              <div className="space-y-1">
+                                {fairnessStats.partnerships.repeatedPairs
+                                  .slice(0, 5)
+                                  .map((pair, index) => (
+                                    <div
+                                      key={index}
+                                      className="text-lg text-emerald-700 sm:text-sm"
+                                    >
+                                      •{' '}
+                                      <span className="font-medium">
+                                        {pair.players}
+                                      </span>{' '}
+                                      - {pair.count} times
+                                    </div>
+                                  ))}
+                                {fairnessStats.partnerships.repeatedPairs
+                                  .length > 5 && (
+                                  <div className="text-lg italic text-emerald-600 sm:text-sm">
+                                    ... and{' '}
+                                    {fairnessStats.partnerships.repeatedPairs
+                                      .length - 5}{' '}
+                                    more
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                       </div>
-                      {fairnessStats.oppositions.repeatedPairs && fairnessStats.oppositions.repeatedPairs.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-amber-200">
-                          <div className="text-lg sm:text-base font-bold text-amber-800 mb-1">Repeated oppositions:</div>
-                          <div className="space-y-1">
-                            {fairnessStats.oppositions.repeatedPairs.slice(0, 5).map((pair, index) => (
-                              <div key={index} className="text-lg sm:text-sm text-amber-700">
-                                • <span className="font-medium">{pair.players}</span> - {pair.count} times
-                              </div>
-                            ))}
-                            {fairnessStats.oppositions.repeatedPairs.length > 5 && (
-                              <div className="text-lg sm:text-sm text-amber-600 italic">
-                                ... and {fairnessStats.oppositions.repeatedPairs.length - 5} more
-                              </div>
-                            )}
+
+                      {/* Opposition Fairness */}
+                      <div className="mb-4 rounded border border-amber-200 bg-amber-50 p-3">
+                        <h5 className="mb-2 text-lg font-bold text-amber-900 sm:text-base">
+                          ⚔️ Opposition Distribution
+                        </h5>
+                        <div className="grid grid-cols-1 gap-2 text-lg sm:grid-cols-2 sm:text-sm">
+                          <div>
+                            <span className="font-medium">
+                              Total oppositions:
+                            </span>{' '}
+                            {fairnessStats.oppositions.total}
+                          </div>
+                          <div>
+                            <span className="font-medium">
+                              Repeated oppositions:
+                            </span>{' '}
+                            {fairnessStats.oppositions.repeated}
+                          </div>
+                          <div>
+                            <span className="font-medium">Max repeats:</span>{' '}
+                            {fairnessStats.oppositions.maxRepeats} times
+                          </div>
+                          <div>
+                            <span className="font-medium">
+                              Fairness rating:
+                            </span>
+                            <span
+                              className={`ml-1 font-bold ${fairnessStats.oppositions.maxRepeats <= 2 ? 'text-green-600' : fairnessStats.oppositions.maxRepeats <= 3 ? 'text-orange-600' : 'text-red-600'}`}
+                            >
+                              {fairnessStats.oppositions.maxRepeats <= 2
+                                ? 'Excellent'
+                                : fairnessStats.oppositions.maxRepeats <= 3
+                                  ? 'Good'
+                                  : 'Needs attention'}
+                            </span>
                           </div>
                         </div>
-                      )}
-                    </div>
+                        {fairnessStats.oppositions.repeatedPairs &&
+                          fairnessStats.oppositions.repeatedPairs.length >
+                            0 && (
+                            <div className="mt-2 border-t border-amber-200 pt-2">
+                              <div className="mb-1 text-lg font-bold text-amber-800 sm:text-base">
+                                Repeated oppositions:
+                              </div>
+                              <div className="space-y-1">
+                                {fairnessStats.oppositions.repeatedPairs
+                                  .slice(0, 5)
+                                  .map((pair, index) => (
+                                    <div
+                                      key={index}
+                                      className="text-lg text-amber-700 sm:text-sm"
+                                    >
+                                      •{' '}
+                                      <span className="font-medium">
+                                        {pair.players}
+                                      </span>{' '}
+                                      - {pair.count} times
+                                    </div>
+                                  ))}
+                                {fairnessStats.oppositions.repeatedPairs
+                                  .length > 5 && (
+                                  <div className="text-lg italic text-amber-600 sm:text-sm">
+                                    ... and{' '}
+                                    {fairnessStats.oppositions.repeatedPairs
+                                      .length - 5}{' '}
+                                    more
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                      </div>
 
-                    <div className="mt-3 text-lg sm:text-sm text-gray-500 italic">
-                      💡 This analysis shows how fairly the algorithm distributed partnerships and oppositions. Green indicates optimal fairness.
+                      <div className="mt-3 text-lg italic text-gray-500 sm:text-sm">
+                        💡 This analysis shows how fairly the algorithm
+                        distributed partnerships and oppositions. Green
+                        indicates optimal fairness.
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
               </div>
             )}
 
             {!schedule && !gamesOnly && activeTab !== 'statistics' && (
               <div className="py-6 text-center">
-                <div className="text-2xl mb-1">🏸</div>
+                <div className="mb-1 text-2xl">🏸</div>
                 <h3 className="mb-1 text-lg font-bold text-gray-900 sm:text-base sm:font-medium">
                   No Schedule Yet
                 </h3>
@@ -803,7 +932,11 @@ const BadmintonScheduler = () => {
           </div>
         </div>
       )}
-      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: 'info' })} />
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast({ message: '', type: 'info' })}
+      />
       <ConfirmDialog
         open={confirmClearOpen}
         title="Clear players"
