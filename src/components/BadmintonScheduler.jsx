@@ -1,337 +1,857 @@
-import React, { useState } from 'react';
-
-const defaultPlayers = `
-Appa
-Jeevan
-Koti
-Madhu
-Murali
-Phani
-Prasad
-Praveen
-Raghu R
-Rambabu
-Rao Seema
-Ravi G
-Tarun
-Sreeni
-Subhani
-Tripura
-Srinivas
-Vijay
-Randeep
-`.trim();
+import { useState, useCallback, useMemo } from 'react';
+import Toast from './ui/Toast';
+import ConfirmDialog from './ui/ConfirmDialog';
+import { BadmintonManager } from '../lib/scheduler';
+import { findDuplicates } from '../lib/players';
 
 const defaultConfig = {
   maxCourts: 4,
   maxRounds: 10,
   printStats: false,
-  weights: {
-    PARTNERSHIP: 2000,
-    OPPOSITION: 800,
-    GAME_BALANCE: 200,
-    NEW_INTERACTION: 400
-  }
+  // Note: Weights are managed internally by BadmintonManager's SCORING_CONFIG
+  // The scheduler uses adaptive weights that adjust based on player diversity
 };
 
 const BadmintonScheduler = () => {
-  const [players, setPlayers] = useState(defaultPlayers);
+  const [players, setPlayers] = useState('');
   const [maxCourts, setMaxCourts] = useState(defaultConfig.maxCourts);
   const [maxRounds, setMaxRounds] = useState(defaultConfig.maxRounds);
-  const [printStats, setPrintStats] = useState(defaultConfig.printStats);
   const [schedule, setSchedule] = useState('');
+  const [error, setError] = useState('');
+  const [gamesOnly, setGamesOnly] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [activeTab, setActiveTab] = useState('games');
 
-  class BadmintonManager {
-    constructor(maxCourts, maxRounds, printStats, weights) {
-      this.maxCourts = maxCourts;
-      this.maxRounds = maxRounds;
-      this.printStats = printStats;
-      this.players = new Set();
-      this.partnerHistory = new Map();
-      this.opponentHistory = new Map();
-      this.courtHistory = new Map();
-      this.restHistory = new Map();
-      this.gamesPlayed = new Map();
-      this.weights = weights;
+  const [fairnessStats, setFairnessStats] = useState(null);
+  const [copyMessage, setCopyMessage] = useState('');
+  const [toast, setToast] = useState({ message: '', type: 'info' });
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+
+  // Enhanced player statistics
+  const playerStats = useMemo(() => {
+    const playerList = players
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p);
+    const playerCount = playerList.length;
+    const playersPerCourt = 4;
+    const totalCourtSlots = maxCourts * maxRounds;
+    const totalPlayerSlots = totalCourtSlots * playersPerCourt;
+    const avgGamesPerPlayer =
+      playerCount > 0 ? Math.floor(totalPlayerSlots / playerCount) : 0;
+    const restingPerRound = Math.max(
+      0,
+      playerCount - maxCourts * playersPerCourt
+    );
+
+    return {
+      playerCount,
+      avgGamesPerPlayer,
+      restingPerRound,
+      totalGames: maxCourts * maxRounds,
+      courtUtilization:
+        playerCount >= maxCourts * 4
+          ? '100%'
+          : `${Math.round((playerCount / (maxCourts * 4)) * 100)}%`,
+    };
+  }, [players, maxCourts, maxRounds]);
+
+  const printGamesOnly = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setToast({
+        message: 'Popup blocked. Please allow popups or use Copy.',
+        type: 'error',
+      });
+      return;
+    }
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Badminton Games Schedule</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+            body {
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+              padding: 0;
+              margin: 0;
+              line-height: 1.3;
+              font-size: 11px;
+              background: white;
+            }
+            .page-container {
+              padding: 0.8cm;
+              max-width: 100%;
+            }
+            .tournament-header {
+              text-align: center;
+              margin-bottom: 15px;
+              border-bottom: 2px solid #333;
+              padding-bottom: 8px;
+            }
+            .tournament-title {
+              font-size: 18px;
+              font-weight: 700;
+              color: #000;
+              margin: 0;
+            }
+            .tournament-date {
+              font-size: 12px;
+              color: #666;
+              margin: 4px 0 0 0;
+            }
+            .round {
+              margin-bottom: 12px;
+              page-break-inside: avoid;
+              border: none;
+              border-radius: 0;
+              padding: 0;
+              background: none;
+            }
+            .round-header {
+              font-weight: 700;
+              font-size: 14px;
+              margin-bottom: 6px;
+              color: #000;
+              text-align: left;
+              background: none;
+              padding: 0;
+              border-radius: 0;
+              border-bottom: 1px solid #333;
+              padding-bottom: 2px;
+            }
+            .resting-section {
+              margin-bottom: 8px;
+              padding: 0;
+              background: none;
+              border-left: none;
+              border-radius: 0;
+            }
+            .resting-label {
+              font-weight: 600;
+              color: #333;
+              font-size: 12px;
+              text-transform: none;
+              letter-spacing: 0;
+              display: inline;
+              margin-right: 8px;
+            }
+            .resting-players {
+              font-weight: 600;
+              color: #000;
+              margin-top: 0;
+              display: inline;
+              font-size: 12px;
+            }
+            .courts-container {
+              display: block;
+            }
+            .court-game {
+              background: none;
+              padding: 0;
+              border-radius: 0;
+              border: none;
+              margin-bottom: 4px;
+            }
+            .court-number {
+              font-weight: 600;
+              color: #333;
+              font-size: 12px;
+              text-transform: none;
+              letter-spacing: 0;
+              margin-bottom: 0;
+              display: inline;
+              margin-right: 8px;
+            }
+            .player-names {
+              font-weight: 700;
+              color: #000;
+              font-size: 12px;
+              line-height: 1.3;
+              display: inline;
+            }
+            .vs-separator {
+              color: #666;
+              font-weight: 400;
+              margin: 0 4px;
+            }
+            .team {
+              display: inline;
+            }
+            @media print {
+              body {
+                padding: 0;
+                margin: 0;
+                font-size: 14px;
+              }
+              .page-container {
+                padding: 0.5cm;
+              }
+              @page {
+                margin: 0.7cm;
+                size: A4 portrait;
+              }
+              .tournament-header {
+                margin-bottom: 12px;
+              }
+              .round {
+                margin-bottom: 10px;
+                break-inside: avoid;
+              }
+              .round-header {
+                font-size: 15px;
+                margin-bottom: 5px;
+                border-bottom: 1px solid #333;
+                padding-bottom: 2px;
+              }
+              .court-game {
+                margin-bottom: 3px;
+              }
+              .player-names, .resting-players {
+                font-weight: 700 !important;
+                -webkit-print-color-adjust: exact;
+                color-adjust: exact;
+                font-size: 13px !important;
+              }
+              .court-number {
+                font-size: 13px !important;
+              }
+              .resting-label {
+                font-size: 13px !important;
+              }
+              .resting-section {
+                margin-bottom: 6px;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="page-container">
+            <div class="tournament-header">
+              <h1 class="tournament-title">🏸 Badminton Tournament Schedule</h1>
+              <p class="tournament-date">Generated on ${new Date().toLocaleDateString(
+                'en-GB',
+                {
+                  weekday: 'long',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                }
+              )}</p>
+            </div>
+            ${gamesOnly
+              .split(/Round \d+/)
+              .filter(section => section.trim())
+              .map((section, index) => {
+                const restingMatch = section.match(/Resting Players: (.*)\n/);
+                const restingPlayers = restingMatch ? restingMatch[1] : '';
+
+                const courtMatches =
+                  section.match(/Court (\d+): (.*?) vs (.*?)(?=\n|$)/g) || [];
+
+                return `
+                <div class="round">
+                  <div class="round-header">Round ${index + 1}</div>
+                  ${
+                    restingPlayers
+                      ? `
+                    <div class="resting-section">
+                      <div class="resting-label">Resting Players</div>
+                      <div class="resting-players">${restingPlayers}</div>
+                    </div>
+                  `
+                      : ''
+                  }
+                  <div class="courts-container">
+                    ${courtMatches
+                      .map(court => {
+                        const courtMatch = court.match(
+                          /Court (\d+): (.*?) vs (.*?)$/
+                        );
+                        if (courtMatch) {
+                          const [, courtNum, team1, team2] = courtMatch;
+                          return `
+                          <div class="court-game">
+                            <div class="court-number">Court ${courtNum}</div>
+                            <div class="player-names">
+                              <span class="team">${team1}</span>
+                              <span class="vs-separator">vs</span>
+                              <span class="team">${team2}</span>
+                            </div>
+                          </div>
+                        `;
+                        }
+                        return '';
+                      })
+                      .join('')}
+                  </div>
+                </div>
+                `;
+              })
+              .join('')}
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  const handleCopyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(gamesOnly);
+      setCopyMessage('Games copied to clipboard!');
+      setToast({ message: 'Copied to clipboard', type: 'success' });
+      setTimeout(() => setCopyMessage(''), 2000); // Hide message after 2 seconds
+    } catch {
+      setCopyMessage('Failed to copy');
+      setToast({ message: 'Failed to copy', type: 'error' });
+      setTimeout(() => setCopyMessage(''), 2000);
+    }
+  };
+
+  // findDuplicates moved to lib
+
+  // Enhanced player validation with better error messages
+  const validatePlayers = useCallback(playersText => {
+    const playerList = playersText
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p);
+    const errors = [];
+
+    if (playerList.length < 4) {
+      errors.push(
+        `⚠️ Need at least 4 players (currently ${playerList.length})`
+      );
     }
 
-    loadPlayers(playersText) {
-      this.players = new Set(playersText.split('\n').map(p => p.trim()).filter(p => p));
-      if (this.players.size < 4) {
-        throw new Error("Need at least 4 players to create games");
-      }
+    if (playerList.length > 25) {
+      errors.push(
+        `⚠️ Maximum 25 players supported (currently ${playerList.length})`
+      );
     }
 
-    getOrDefault(map, key, defaultValue = new Map()) {
-      if (!map.has(key)) {
-        map.set(key, defaultValue);
-      }
-      return map.get(key);
+    const duplicates = findDuplicates(playersText);
+    if (duplicates.length > 0) {
+      const duplicateDetails = duplicates
+        .map(([_, names]) => names.join(', '))
+        .join(', ');
+      errors.push(`🔄 Duplicate names: ${duplicateDetails}`);
     }
 
-    updateHistory(team1, team2, court) {
-      const team1Arr = Array.from(team1);
-      const team2Arr = Array.from(team2);
+    return errors;
+  }, []);
 
-      for (let i = 0; i < team1Arr.length; i++) {
-        for (let j = i + 1; j < team1Arr.length; j++) {
-          const p1 = team1Arr[i];
-          const p2 = team1Arr[j];
-          const history1 = this.getOrDefault(this.partnerHistory, p1);
-          const history2 = this.getOrDefault(this.partnerHistory, p2);
-          history1.set(p2, (history1.get(p2) || 0) + 1);
-          history2.set(p1, (history2.get(p1) || 0) + 1);
-        }
+  // Enhanced generate schedule with loading state
+  const generateSchedule = useCallback(async () => {
+    setIsGenerating(true);
+    setError('');
+    setFairnessStats(null); // Reset fairness stats
+
+    try {
+      const validationErrors = validatePlayers(players);
+      if (validationErrors.length > 0) {
+        setError(validationErrors.join('\n'));
+        return;
       }
 
-      for (let i = 0; i < team2Arr.length; i++) {
-        for (let j = i + 1; j < team2Arr.length; j++) {
-          const p1 = team2Arr[i];
-          const p2 = team2Arr[j];
-          const history1 = this.getOrDefault(this.partnerHistory, p1);
-          const history2 = this.getOrDefault(this.partnerHistory, p2);
-          history1.set(p2, (history1.get(p2) || 0) + 1);
-          history2.set(p1, (history2.get(p1) || 0) + 1);
-        }
-      }
+      // Simulate processing delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-      for (const p1 of team1) {
-        for (const p2 of team2) {
-          const history1 = this.getOrDefault(this.opponentHistory, p1);
-          const history2 = this.getOrDefault(this.opponentHistory, p2);
-          history1.set(p2, (history1.get(p2) || 0) + 1);
-          history2.set(p1, (history2.get(p1) || 0) + 1);
-        }
-      }
+      const manager = new BadmintonManager(maxCourts, maxRounds);
+      manager.loadPlayers(players, findDuplicates);
+      const output = manager.generateSchedule();
+      const fairnessData = manager.calculateFairnessStats();
 
-      const allPlayers = new Set([...team1, ...team2]);
-      for (const player of allPlayers) {
-        const courtHist = this.getOrDefault(this.courtHistory, player);
-        courtHist.set(court, (courtHist.get(court) || 0) + 1);
-        this.gamesPlayed.set(player, (this.gamesPlayed.get(player) || 0) + 1);
-      }
+      setSchedule(output);
+      setGamesOnly(manager.gamesOnlySchedule);
+      setFairnessStats(fairnessData);
+      setActiveTab('games');
+    } catch (error) {
+      setError(`❌ ${error.message}`);
+      setSchedule('');
+      setGamesOnly('');
+    } finally {
+      setIsGenerating(false);
     }
+  }, [players, maxCourts, maxRounds, validatePlayers]);
 
-    calculateTeamScore(team1, team2) {
-      let score = 0;
-      const team1Arr = Array.from(team1);
-      const team2Arr = Array.from(team2);
+  // Clear players functionality
+  const clearPlayers = useCallback(() => {
+    setConfirmClearOpen(true);
+  }, []);
 
-      for (let i = 0; i < team1Arr.length; i++) {
-        for (let j = i + 1; j < team1Arr.length; j++) {
-          const p1 = team1Arr[i];
-          const p2 = team1Arr[j];
-          score -= this.weights.PARTNERSHIP * (this.getOrDefault(this.partnerHistory, p1).get(p2) || 0);
-        }
-      }
+  const onConfirmClear = useCallback(() => {
+    setConfirmClearOpen(false);
+    setPlayers('');
+    setSchedule('');
+    setGamesOnly('');
+    setError('');
+    setToast({ message: 'Players cleared', type: 'success' });
+  }, []);
 
-      for (let i = 0; i < team2Arr.length; i++) {
-        for (let j = i + 1; j < team2Arr.length; j++) {
-          const p1 = team2Arr[i];
-          const p2 = team2Arr[j];
-          score -= this.weights.PARTNERSHIP * (this.getOrDefault(this.partnerHistory, p1).get(p2) || 0);
-        }
-      }
-
-      for (const p1 of team1) {
-        for (const p2 of team2) {
-          const oppCount = this.getOrDefault(this.opponentHistory, p1).get(p2) || 0;
-          score -= this.weights.OPPOSITION * oppCount;
-          if (oppCount === 0) {
-            score += this.weights.NEW_INTERACTION;
-          }
-        }
-      }
-
-      const team1Games = Array.from(team1).reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
-      const team2Games = Array.from(team2).reduce((sum, p) => sum + (this.gamesPlayed.get(p) || 0), 0);
-      score -= this.weights.GAME_BALANCE * Math.abs(team1Games - team2Games);
-
-      return score;
+  // Save players, overwriting a chosen file when supported (File System Access API), otherwise download
+  const [fileHandle, setFileHandle] = useState(null);
+  const savePlayers = useCallback(async () => {
+    const text = players.trim();
+    if (!text) {
+      setToast({ message: 'No players to save', type: 'error' });
+      return;
     }
+    // Progressive enhancement: try File System Access API (Chromium/Edge)
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        let handle = fileHandle;
+        if (!handle) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: 'player_list.txt',
+            types: [
+              {
+                description: 'Text Files',
+                accept: { 'text/plain': ['.txt'] },
+              },
+            ],
+            excludeAcceptAllOption: false,
+          });
+          setFileHandle(handle);
+        }
 
-    generateRound(roundNum) {
-      let availablePlayers = Array.from(this.players);
-      const numPlayersNeeded = this.maxCourts * 4;
-      const numCourts = Math.min(Math.floor(availablePlayers.length / 4), this.maxCourts);
-      const actualPlayersNeeded = numCourts * 4;
-      let restingPlayers = new Set();
-
-      if (availablePlayers.length > actualPlayersNeeded) {
-        availablePlayers.sort((a, b) => {
-          const diff = (this.restHistory.get(a) || 0) - (this.restHistory.get(b) || 0);
-          return diff === 0 ? Math.random() - 0.5 : diff;
-        });
-        const numToRest = availablePlayers.length - actualPlayersNeeded;
-        restingPlayers = new Set(availablePlayers.slice(0, numToRest));
-        restingPlayers.forEach(p => this.restHistory.set(p, (this.restHistory.get(p) || 0) + 1));
-        availablePlayers = availablePlayers.filter(p => !restingPlayers.has(p));
-      }
-
-      const bestAssignments = [];
-      const playersPerCourt = availablePlayers.length / numCourts;
-
-      for (let court = 0; court < numCourts; court++) {
-        const remainingPlayers = availablePlayers.filter(p => 
-          !bestAssignments.some(assignment => 
-            assignment[1].has(p) || assignment[2].has(p)));
-
-        let bestScore = Number.NEGATIVE_INFINITY;
-        let bestTeams = null;
-
-        for (let i = 0; i < 50; i++) {
-          const courtPlayers = this.shuffle(remainingPlayers).slice(0, playersPerCourt);
-          
-          for (let j = 0; j < 20; j++) {
-            this.shuffle(courtPlayers);
-            const team1 = new Set(courtPlayers.slice(0, playersPerCourt / 2));
-            const team2 = new Set(courtPlayers.slice(playersPerCourt / 2));
-            const score = this.calculateTeamScore(team1, team2);
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestTeams = [team1, team2];
+        // Ensure we have permission
+        if (handle.queryPermission) {
+          const status = await handle.queryPermission({ mode: 'readwrite' });
+          if (status !== 'granted' && handle.requestPermission) {
+            const req = await handle.requestPermission({ mode: 'readwrite' });
+            if (req !== 'granted') {
+              setToast({
+                message: 'Permission denied to write file',
+                type: 'error',
+              });
+              return;
             }
           }
         }
 
-        if (bestTeams) {
-          bestAssignments.push([court + 1, bestTeams[0], bestTeams[1]]);
-          this.updateHistory(bestTeams[0], bestTeams[1], court + 1);
+        const writable = await handle.createWritable();
+        await writable.write(text);
+        await writable.close();
+        setToast({ message: 'Saved to file', type: 'success' });
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          // user canceled save dialog
+          return;
         }
+        // Fallthrough to download if FS API fails
       }
-
-      return [restingPlayers, bestAssignments];
     }
 
-    shuffle(array) {
-      const newArray = [...array];
-      for (let i = newArray.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-      }
-      return newArray;
-    }
-
-    generateSchedule() {
-      let output = '';
-      for (let roundNum = 1; roundNum <= this.maxRounds; roundNum++) {
-        const [restingPlayers, courtAssignments] = this.generateRound(roundNum);
-        
-        output += `𝐑𝐨𝐮𝐧𝐝 ${roundNum}\n`;
-        output += `𝐑𝐞𝐬𝐭𝐢𝐧𝐠 𝐏𝐥𝐚𝐲𝐞𝐫𝐬: ${Array.from(restingPlayers).sort().join(', ')}\n`;
-        
-        for (const [court, team1, team2] of courtAssignments) {
-          output += `Court ${court}: ${Array.from(team1).sort().join(', ')} vs ${Array.from(team2).sort().join(', ')}\n`;
-        }
-        output += '-'.repeat(50) + '\n';
-      }
-
-      if (this.printStats) {
-        output += this.generatePlayerStats();
-      }
-
-      return output;
-    }
-
-    generatePlayerStats() {
-      let output = '\n𝐏𝐥𝐚𝐲𝐞𝐫 𝐒𝐭𝐚𝐭𝐢𝐬𝐭𝐢𝐜𝐬:\n' + '='.repeat(50) + '\n';
-      
-      for (const player of Array.from(this.players).sort()) {
-        output += `\n𝐏𝐥𝐚𝐲𝐞𝐫: ${player}\n${'-'.repeat(20)}\n`;
-        output += `Games Played: ${this.gamesPlayed.get(player) || 0}\n`;
-        output += `Times Rested: ${this.restHistory.get(player) || 0}\n\n`;
-        
-        output += 'Partnership History:\n';
-        const partnerships = Array.from(this.getOrDefault(this.partnerHistory, player).entries())
-          .filter(([_, count]) => count > 0)
-          .sort(([a1, c1], [a2, c2]) => c2 - c1 || a1.localeCompare(a2));
-        partnerships.forEach(([partner, count]) => {
-          output += `  - with ${partner}: ${count} times\n`;
-        });
-
-        output += '\nOpposition History:\n';
-        const oppositions = Array.from(this.getOrDefault(this.opponentHistory, player).entries())
-          .filter(([_, count]) => count > 0)
-          .sort(([a1, c1], [a2, c2]) => c2 - c1 || a1.localeCompare(a2));
-        oppositions.forEach(([opponent, count]) => {
-          output += `  - against ${opponent}: ${count} times\n`;
-        });
-
-        output += '\nCourt Distribution:\n';
-        const courts = Array.from(this.getOrDefault(this.courtHistory, player).entries())
-          .sort(([a, _], [b, __]) => a - b);
-        courts.forEach(([court, count]) => {
-          output += `  - Court ${court}: ${count} times\n`;
-        });
-
-        output += '\n' + '='.repeat(50) + '\n';
-      }
-      return output;
-    }
-  }
-
-  const generateSchedule = () => {
+    // Fallback: download (will append (1) if file exists)
     try {
-      const manager = new BadmintonManager(maxCourts, maxRounds, printStats, defaultConfig.weights);
-      manager.loadPlayers(players);
-      const output = manager.generateSchedule();
-      setSchedule(output);
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'player_list.txt';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setToast({ message: 'Downloaded player_list.txt', type: 'success' });
     } catch (error) {
-      setSchedule(`Error: ${error.message}`);
+      setToast({
+        message: 'Failed to download: ' + error.message,
+        type: 'error',
+      });
     }
-  };
+  }, [players, fileHandle]);
 
+  // Import players functionality - Mobile compatible
+  const importPlayers = useCallback(
+    event => {
+      const file = event.target.files[0];
+      if (file) {
+        // More lenient file type checking for mobile
+        const isTextFile =
+          file.type === 'text/plain' ||
+          file.name.endsWith('.txt') ||
+          file.type === '' || // Some mobile browsers don't set type
+          file.type === 'application/octet-stream'; // Some mobile browsers use this for .txt
+
+        if (!isTextFile) {
+          setToast({ message: 'Please select a .txt file', type: 'error' });
+          event.target.value = '';
+          return;
+        }
+
+        try {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const content = e.target.result;
+            if (typeof content === 'string') {
+              setPlayers(content);
+
+              // Trigger validation after importing
+              const errors = validatePlayers(content);
+              setError(errors.join('\n'));
+              setToast({
+                message: 'Players imported successfully',
+                type: 'success',
+              });
+            } else {
+              setToast({ message: 'Invalid file content', type: 'error' });
+            }
+            event.target.value = ''; // Reset file input
+          };
+          reader.onerror = () => {
+            setToast({ message: 'Error reading file', type: 'error' });
+            event.target.value = '';
+          };
+          reader.readAsText(file);
+        } catch (error) {
+          setToast({
+            message: 'Import failed: ' + error.message,
+            type: 'error',
+          });
+          event.target.value = '';
+        }
+      }
+    },
+    [validatePlayers]
+  );
+  const handlePlayersChange = useCallback(
+    e => {
+      const newValue = e.target.value;
+      setPlayers(newValue);
+
+      const errors = validatePlayers(newValue);
+      setError(errors.join('\n'));
+    },
+    [validatePlayers]
+  );
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <div className="mb-4">
-        <label className="block mb-2">Players (one per line):</label>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-1 sm:p-4">
+      {/* Maximized Player Input Area */}
+      <div className="rounded bg-white p-2 shadow-sm sm:p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
+            👥 Players ({playerStats.playerCount})
+          </h3>
+          <div className="flex space-x-3">
+            <button
+              onClick={clearPlayers}
+              className="rounded-lg border-2 border-red-200 bg-red-50 px-4 py-3 text-lg font-bold text-red-700 shadow-sm hover:border-red-300 hover:bg-red-100 sm:px-3 sm:py-2 sm:text-base"
+            >
+              Clear
+            </button>
+            <button
+              onClick={savePlayers}
+              className="rounded-lg border-2 border-blue-200 bg-blue-50 px-4 py-3 text-lg font-bold text-blue-700 shadow-sm hover:border-blue-300 hover:bg-blue-100 sm:px-3 sm:py-2 sm:text-base"
+            >
+              Save
+            </button>
+            <label className="cursor-pointer rounded-lg border-2 border-green-200 bg-green-50 px-4 py-3 text-lg font-bold text-green-700 shadow-sm hover:border-green-300 hover:bg-green-100 sm:px-3 sm:py-2 sm:text-base">
+              Import
+              <input
+                id="file-import"
+                type="file"
+                accept=".txt,text/plain,*"
+                onChange={importPlayers}
+                className="hidden"
+                multiple={false}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Maximized textarea for mobile - much taller with bigger font */}
         <textarea
-          className="w-full h-40 p-2 border rounded"
+          rows={18}
+          className="w-full resize-none rounded border border-gray-300 px-4 py-4 text-xl leading-snug sm:px-3 sm:py-3 sm:text-sm"
           value={players}
-          onChange={(e) => setPlayers(e.target.value)}
+          onChange={handlePlayersChange}
+          placeholder="Enter player names, one per line..."
+          style={{ minHeight: '380px', fontSize: '24px', lineHeight: '1.3' }}
         />
+
+        {playerStats.playerCount > 0 && (
+          <div className="mt-1 flex justify-between text-lg font-bold text-gray-700 sm:text-base sm:font-semibold sm:text-gray-500">
+            <span>{playerStats.playerCount} players</span>
+            <span>{playerStats.restingPerRound} resting per round</span>
+          </div>
+        )}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div>
-          <label className="block mb-2">Max Courts:</label>
-          <input
-            type="number"
-            className="w-full p-2 border rounded"
-            value={maxCourts}
-            onChange={(e) => setMaxCourts(parseInt(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className="block mb-2">Max Rounds:</label>
-          <input
-            type="number"
-            className="w-full p-2 border rounded"
-            value={maxRounds}
-            onChange={(e) => setMaxRounds(parseInt(e.target.value))}
-          />
-        </div>
-        <div className="flex items-center">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              className="mr-2"
-              checked={printStats}
-              onChange={(e) => setPrintStats(e.target.checked)}
-            />
-            Print Statistics
-          </label>
+
+      {/* Ultra-Compact Settings */}
+      <div className="mt-4 rounded-lg border-2 border-gray-200 bg-white p-3 shadow-lg sm:mt-5 sm:p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex space-x-4">
+            <div>
+              <label className="mb-2 block text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">
+                Courts
+              </label>
+              <select
+                className="w-24 rounded-lg border-2 border-gray-300 px-4 py-3 text-lg font-semibold shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:w-16 sm:px-2 sm:py-2 sm:text-base sm:font-normal"
+                value={maxCourts}
+                onChange={e => setMaxCourts(parseInt(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 6].map(num => (
+                  <option key={num} value={num}>
+                    {num}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-lg font-bold text-gray-800 sm:text-base sm:font-medium sm:text-gray-700">
+                Rounds
+              </label>
+              <select
+                className="w-24 rounded-lg border-2 border-gray-300 px-4 py-3 text-lg font-semibold shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 sm:w-16 sm:px-2 sm:py-2 sm:text-base sm:font-normal"
+                value={maxRounds}
+                onChange={e => setMaxRounds(parseInt(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(num => (
+                  <option key={num} value={num}>
+                    {num}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="ml-4 max-w-xs rounded-lg border border-blue-200 bg-blue-50 p-3 sm:max-w-sm">
+            <div className="flex items-start space-x-2">
+              <span className="text-lg sm:text-base">💡</span>
+              <div className="text-lg text-blue-800 sm:text-sm">
+                <p>
+                  Tap <strong>Save</strong> to download{' '}
+                  <code>player_list.txt</code>. Next time, use{' '}
+                  <strong>Import</strong> to load that file.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mt-2 rounded border border-red-200 bg-red-50 p-2">
+          <div className="text-lg text-red-700 sm:text-base">
+            <pre className="whitespace-pre-wrap">{error}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Large Generate Button */}
       <button
-        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mb-4"
+        type="button"
         onClick={generateSchedule}
+        disabled={isGenerating || error.length > 0}
+        className="mt-6 flex w-full items-center justify-center space-x-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-lg font-bold text-white shadow-lg disabled:from-gray-400 disabled:to-gray-500 sm:py-4 sm:text-base"
       >
-        Generate Schedule
+        {isGenerating ? (
+          <>
+            <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-white"></div>
+            <span className="text-lg sm:text-base">Generating...</span>
+          </>
+        ) : (
+          <span className="text-lg">⚡ Generate Schedule</span>
+        )}
       </button>
-      <pre className="whitespace-pre-wrap border p-4 rounded bg-gray-50">
-        {schedule}
-      </pre>
+
+      {/* Compact Schedule Display */}
+      {(schedule || gamesOnly) && (
+        <div className="mt-2 rounded bg-white shadow-sm">
+          {/* Minimal Tabs */}
+          <div className="border-b border-gray-200">
+            <div className="flex">
+              <button
+                onClick={() => setActiveTab('games')}
+                className={`flex-1 px-2 py-2 text-lg font-medium sm:text-base ${
+                  activeTab === 'games'
+                    ? 'border-b-2 border-blue-500 text-blue-600'
+                    : 'text-gray-500'
+                }`}
+              >
+                🏸 Games
+              </button>
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className={`flex-1 px-2 py-2 text-lg font-medium sm:text-base ${
+                  activeTab === 'statistics'
+                    ? 'border-b-2 border-blue-500 text-blue-600'
+                    : 'text-gray-500'
+                }`}
+              >
+                📊 Statistics
+              </button>
+            </div>
+          </div>
+
+          <div className="p-2 sm:p-3">
+            {activeTab === 'games' && gamesOnly && (
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-gray-900 sm:text-lg sm:font-semibold">
+                    Tournament Schedule
+                  </h3>
+                  <div className="mb-4 flex space-x-4">
+                    <div className="relative">
+                      <button
+                        onClick={handleCopyToClipboard}
+                        className="flex items-center space-x-2 rounded-lg border-2 border-gray-300 bg-gray-50 px-5 py-3 text-lg font-bold text-gray-700 shadow-sm hover:border-gray-400 hover:bg-gray-100 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
+                      >
+                        <span>📋</span>
+                        <span>Copy</span>
+                      </button>
+                      {copyMessage && (
+                        <div className="absolute left-0 top-12 z-10 rounded-lg bg-green-600 px-3 py-2 text-lg text-white shadow-lg sm:text-base">
+                          {copyMessage}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={printGamesOnly}
+                      className="flex items-center space-x-2 rounded-lg border-2 border-blue-300 bg-blue-600 px-5 py-3 text-lg font-bold text-white shadow-sm hover:border-blue-400 hover:bg-blue-700 sm:px-3 sm:py-2 sm:text-base sm:font-medium"
+                    >
+                      <span>🖨️</span>
+                      <span>Print</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded border bg-gray-50 p-3">
+                  <pre
+                    className="overflow-auto text-lg leading-snug sm:max-h-60 sm:text-xs sm:leading-normal"
+                    style={{
+                      minHeight: '380px',
+                      fontSize: '18px',
+                      lineHeight: '1.3',
+                    }}
+                  >
+                    {gamesOnly}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'statistics' && (
+              <div>
+                <h3 className="mb-3 text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
+                  Tournament Statistics
+                </h3>
+
+                {fairnessStats &&
+                  fairnessStats.partnerships &&
+                  fairnessStats.oppositions &&
+                  fairnessStats.courtAssignments && (
+                    <div>
+                      <h4 className="mb-3 text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
+                        🎯 Fairness Analysis
+                      </h4>
+
+                      {/* Simple Quality Table */}
+                      <div className="rounded border border-green-200 bg-green-50 p-4">
+                        <h5 className="mb-3 text-center text-lg font-bold text-green-900 sm:text-base">
+                          ✅ Schedule Quality
+                        </h5>
+                        <div className="overflow-hidden rounded-lg border border-green-300 bg-white">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b border-green-200 bg-green-100">
+                                <th className="px-4 py-2 text-left text-base font-semibold text-green-900 sm:text-sm">
+                                  Category
+                                </th>
+                                <th className="px-4 py-2 text-center text-base font-semibold text-green-900 sm:text-sm">
+                                  Status
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr className="border-b border-green-100">
+                                <td className="px-4 py-3 text-base sm:text-sm">
+                                  Partnership
+                                </td>
+                                <td className="px-4 py-3 text-center text-2xl">
+                                  {fairnessStats.partnerships.repeated === 0
+                                    ? '✅'
+                                    : '⚠️'}
+                                </td>
+                              </tr>
+                              <tr className="border-b border-green-100">
+                                <td className="px-4 py-3 text-base sm:text-sm">
+                                  Opposition
+                                </td>
+                                <td className="px-4 py-3 text-center text-2xl">
+                                  {(() => {
+                                    const maxRepeats =
+                                      fairnessStats.oppositions.maxRepeats;
+                                    return maxRepeats <= 2
+                                      ? '✅'
+                                      : maxRepeats <= 3
+                                        ? '✓'
+                                        : '⚠️';
+                                  })()}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="px-4 py-3 text-base sm:text-sm">
+                                  Resting
+                                </td>
+                                <td className="px-4 py-3 text-center text-2xl">
+                                  {(() => {
+                                    const rests = fairnessStats.playerStats.map(
+                                      p => p.restCount
+                                    );
+                                    const spread =
+                                      Math.max(...rests) - Math.min(...rests);
+                                    return spread === 0
+                                      ? '✅'
+                                      : spread <= 1
+                                        ? '✓'
+                                        : '⚠️';
+                                  })()}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="mt-3 text-center text-sm text-green-700">
+                          ✅ = Perfect | ✓ = Great | ⚠️ = Good
+                        </div>
+                      </div>
+                    </div>
+                  )}
+              </div>
+            )}
+
+            {!schedule && !gamesOnly && activeTab !== 'statistics' && (
+              <div className="py-6 text-center">
+                <div className="mb-1 text-2xl">🏸</div>
+                <h3 className="mb-1 text-lg font-bold text-gray-900 sm:text-base sm:font-medium">
+                  No Schedule Yet
+                </h3>
+                <p className="text-lg text-gray-500 sm:text-base">
+                  Add players and generate your tournament.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast({ message: '', type: 'info' })}
+      />
+      <ConfirmDialog
+        open={confirmClearOpen}
+        title="Clear players"
+        message="Are you sure you want to clear all players? This action cannot be undone."
+        onCancel={() => setConfirmClearOpen(false)}
+        onConfirm={onConfirmClear}
+      />
     </div>
   );
 };
