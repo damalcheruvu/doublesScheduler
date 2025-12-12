@@ -63,7 +63,7 @@ export class BadmintonManager {
         partnershipsCount: new Map(),
         oppositionsCount: new Map(),
         courtAssignments: new Map(),
-        lastRoundPlayed: null, // boolean semantics: true = played last round, false = rested last round
+        lastRoundNumber: 0, // Track which round this player last participated in
       });
     }
   }
@@ -102,7 +102,7 @@ export class BadmintonManager {
       const stats = this.playerStats.get(player);
       if (stats) {
         stats.gamesPlayed++;
-        stats.lastRoundPlayed = true;
+        stats.lastRoundNumber = round;
         this.recordCourtAssignment(player, court);
       }
     }
@@ -126,11 +126,11 @@ export class BadmintonManager {
     }
   }
 
-  recordRest(player) {
+  recordRest(player, roundNum) {
     const stats = this.playerStats.get(player);
     if (stats) {
       stats.restCount++;
-      stats.lastRoundPlayed = false;
+      stats.lastRoundNumber = roundNum;
     }
   }
 
@@ -200,36 +200,28 @@ export class BadmintonManager {
   }
 
   shuffleWithBias(array, roundNum) {
-    const newArray = [...array];
-    newArray.sort((a, b) => {
-      const statsA = this.playerStats.get(a);
-      const statsB = this.playerStats.get(b);
+    // Schwartzian transform: compute weights once per player, then sort
+    const playersWithWeights = array.map(player => {
+      const stats = this.playerStats.get(player);
+      const games = stats?.gamesPlayed || 0;
+      const consecutive = this.getConsecutiveGames(player, roundNum);
+      const uniqueOpponents = stats?.oppositionsCount.size || 0;
 
-      const aGames = statsA?.gamesPlayed || 0;
-      const bGames = statsB?.gamesPlayed || 0;
-      const aConsecutive = this.getConsecutiveGames(a, roundNum);
-      const bConsecutive = this.getConsecutiveGames(b, roundNum);
-
-      const aUniqueOpponents = statsA?.oppositionsCount.size || 0;
-      const bUniqueOpponents = statsB?.oppositionsCount.size || 0;
-
-      const aWeight =
+      const weight =
         Math.random() * this.scoringConfig.SHUFFLE_BIAS.RANDOM_FACTOR +
-        aGames * this.scoringConfig.SHUFFLE_BIAS.GAME_WEIGHT +
-        aConsecutive * this.scoringConfig.SHUFFLE_BIAS.CONSECUTIVE_WEIGHT -
-        aUniqueOpponents *
+        games * this.scoringConfig.SHUFFLE_BIAS.GAME_WEIGHT +
+        consecutive * this.scoringConfig.SHUFFLE_BIAS.CONSECUTIVE_WEIGHT -
+        uniqueOpponents *
           this.scoringConfig.SHUFFLE_BIAS.OPPONENT_DIVERSITY_WEIGHT;
 
-      const bWeight =
-        Math.random() * this.scoringConfig.SHUFFLE_BIAS.RANDOM_FACTOR +
-        bGames * this.scoringConfig.SHUFFLE_BIAS.GAME_WEIGHT +
-        bConsecutive * this.scoringConfig.SHUFFLE_BIAS.CONSECUTIVE_WEIGHT -
-        bUniqueOpponents *
-          this.scoringConfig.SHUFFLE_BIAS.OPPONENT_DIVERSITY_WEIGHT;
-
-      return aWeight - bWeight;
+      return { player, weight };
     });
-    return newArray;
+
+    // Sort by weight (stable sort)
+    playersWithWeights.sort((a, b) => a.weight - b.weight);
+
+    // Extract sorted players
+    return playersWithWeights.map(p => p.player);
   }
 
   selectOptimalPlayers(availablePlayers, numPlayersNeeded, roundNum) {
@@ -240,7 +232,10 @@ export class BadmintonManager {
       const restCount = stats?.restCount || 0;
       const gameCount = stats?.gamesPlayed || 0;
       const consecutiveRests = this.getConsecutiveRests(player, roundNum);
-      const lastRoundRested = stats?.lastRoundPlayed === false;
+      const lastRoundNumber = stats?.lastRoundNumber || 0;
+      const restedLastRound =
+        lastRoundNumber < roundNum - 1 ||
+        (lastRoundNumber === roundNum - 1 && restCount > 0);
 
       // Higher priority = more need to play (should be selected)
       let priority = 0;
@@ -255,7 +250,7 @@ export class BadmintonManager {
       priority += consecutiveRests * 3000;
 
       // Bonus: If rested last round, prioritize playing
-      if (lastRoundRested) {
+      if (restedLastRound) {
         priority += 2000;
       }
 
@@ -358,7 +353,9 @@ export class BadmintonManager {
 
     const lastRoundBonus = [...team1, ...team2].reduce((bonus, player) => {
       const stats = this.playerStats.get(player);
-      if (stats?.lastRoundPlayed === false) {
+      const lastRoundNumber = stats?.lastRoundNumber || 0;
+      // Bonus if player rested in previous round
+      if (lastRoundNumber < roundNum - 1) {
         return bonus + 500;
       }
       return bonus;
@@ -445,18 +442,11 @@ export class BadmintonManager {
       for (const player of availablePlayers) {
         if (!selectedPlayers.includes(player)) {
           restingPlayers.add(player);
-          this.recordRest(player);
+          this.recordRest(player, roundNum);
         }
       }
 
       availablePlayers = selectedPlayers;
-    }
-
-    for (const player of availablePlayers) {
-      const stats = this.playerStats.get(player);
-      if (stats) {
-        stats.lastRoundPlayed = true;
-      }
     }
 
     // NEW APPROACH: Global optimization instead of greedy court-by-court
