@@ -744,83 +744,144 @@ const BadmintonScheduler = () => {
 
                 {fairnessStats &&
                   fairnessStats.partnerships &&
-                  fairnessStats.oppositions &&
-                  fairnessStats.courtAssignments && (
-                    <div>
-                      <h4 className="mb-3 text-lg font-bold text-gray-900 sm:text-base sm:font-semibold">
-                        🎯 Fairness Analysis
-                      </h4>
+                  fairnessStats.oppositions && (
+                    <div className="space-y-4">
+                      {/* Simple Summary - Just Partners and Opponents */}
+                      <div className="rounded-lg border-2 border-green-300 bg-gradient-to-br from-green-50 to-emerald-50 p-5">
+                        <h4 className="mb-4 text-center text-xl font-bold text-green-800 sm:text-lg">
+                          ✨ Schedule Quality: Optimised
+                        </h4>
 
-                      {/* Simple Quality Table */}
-                      <div className="rounded border border-green-200 bg-green-50 p-4">
-                        <h5 className="mb-3 text-center text-lg font-bold text-green-900 sm:text-base">
-                          ✅ Schedule Quality
-                        </h5>
-                        <div className="overflow-hidden rounded-lg border border-green-300 bg-white">
-                          <table className="w-full">
-                            <thead>
-                              <tr className="border-b border-green-200 bg-green-100">
-                                <th className="px-4 py-2 text-left text-base font-semibold text-green-900 sm:text-sm">
-                                  Category
-                                </th>
-                                <th className="px-4 py-2 text-center text-base font-semibold text-green-900 sm:text-sm">
-                                  Status
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr className="border-b border-green-100">
-                                <td className="px-4 py-3 text-base sm:text-sm">
-                                  Partnership
-                                </td>
-                                <td className="px-4 py-3 text-center text-2xl">
-                                  {fairnessStats.partnerships.repeated === 0
-                                    ? '✅'
-                                    : '⚠️'}
-                                </td>
-                              </tr>
-                              <tr className="border-b border-green-100">
-                                <td className="px-4 py-3 text-base sm:text-sm">
-                                  Opposition
-                                </td>
-                                <td className="px-4 py-3 text-center text-2xl">
-                                  {(() => {
-                                    const maxRepeats =
-                                      fairnessStats.oppositions.maxRepeats;
-                                    return maxRepeats <= 2
-                                      ? '✅'
-                                      : maxRepeats <= 3
-                                        ? '✓'
-                                        : '⚠️';
-                                  })()}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="px-4 py-3 text-base sm:text-sm">
-                                  Resting
-                                </td>
-                                <td className="px-4 py-3 text-center text-2xl">
-                                  {(() => {
-                                    const rests = fairnessStats.playerStats.map(
-                                      p => p.restCount
-                                    );
-                                    const spread =
-                                      Math.max(...rests) - Math.min(...rests);
-                                    return spread === 0
-                                      ? '✅'
-                                      : spread <= 1
-                                        ? '✓'
-                                        : '⚠️';
-                                  })()}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
+                        {/* 2 Key Metrics */}
+                        <div className="grid grid-cols-2 gap-4 sm:gap-3">
+                          {/* Partners */}
+                          <div className="rounded-lg bg-white p-4 text-center shadow-sm">
+                            <div className="mb-2 text-4xl">
+                              {fairnessStats.partnerships.repeated === 0
+                                ? '✅'
+                                : '⚠️'}
+                            </div>
+                            <div className="text-lg font-bold text-gray-800 sm:text-base">
+                              Partners
+                            </div>
+                            <div className="mt-1 text-sm text-gray-600">
+                              {fairnessStats.partnerships.repeated === 0
+                                ? 'Everyone different!'
+                                : `${fairnessStats.partnerships.repeated} repeated`}
+                            </div>
+                          </div>
+
+                          {/* Opponents */}
+                          <div className="rounded-lg bg-white p-4 text-center shadow-sm">
+                            <div className="mb-2 text-4xl">
+                              {fairnessStats.oppositions.maxRepeats <= 2
+                                ? '✅'
+                                : fairnessStats.oppositions.maxRepeats <= 3
+                                  ? '✓'
+                                  : '⚠️'}
+                            </div>
+                            <div className="text-lg font-bold text-gray-800 sm:text-base">
+                              Opponents
+                            </div>
+                            <div className="mt-1 text-sm text-gray-600">
+                              Max {fairnessStats.oppositions.maxRepeats}× same
+                              person
+                            </div>
+                          </div>
                         </div>
-                        <div className="mt-3 text-center text-sm text-green-700">
-                          ✅ = Perfect | ✓ = Great | ⚠️ = Good
+
+                        {/* Simple Explanation */}
+                        <div className="mt-4 rounded-lg bg-green-100 p-3 text-center text-sm text-green-800">
+                          {fairnessStats.partnerships.repeated === 0 ? (
+                            <strong>
+                              ✓ You never have the same partner twice!
+                            </strong>
+                          ) : (
+                            <strong>
+                              Some partner repeats due to player numbers
+                            </strong>
+                          )}
+                          <br />
+                          <span className="text-xs text-green-600">
+                            Opponent repeats are minimised — some are
+                            unavoidable with {fairnessStats.playerStats.length}{' '}
+                            players.
+                          </span>
                         </div>
                       </div>
+
+                      {/* Collapsible Details - Top 5 Partners and Opponents */}
+                      <details className="rounded-lg border border-gray-200 bg-white">
+                        <summary className="cursor-pointer p-3 text-base font-medium text-gray-700 hover:bg-gray-50 sm:text-sm">
+                          📊 Show most frequent pairings
+                        </summary>
+                        <div className="space-y-4 border-t border-gray-200 p-4">
+                          {/* Top Partners */}
+                          <div>
+                            <h5 className="mb-2 text-sm font-bold text-blue-800">
+                              🤝 Top 5 Partner Pairs
+                            </h5>
+                            {fairnessStats.partnerships.repeatedPairs.length ===
+                            0 ? (
+                              <div className="rounded bg-green-50 p-2 text-sm text-green-600">
+                                ✅ No repeated partners — everyone partnered
+                                with different people each game!
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {fairnessStats.partnerships.repeatedPairs
+                                  .sort((a, b) => b.count - a.count)
+                                  .slice(0, 5)
+                                  .map((pair, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex justify-between rounded bg-blue-50 p-2 text-sm"
+                                    >
+                                      <span className="font-medium">
+                                        {pair.players.replace('-', ' & ')}
+                                      </span>
+                                      <span className="text-blue-600">
+                                        {pair.count}× together
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Top Opponents */}
+                          <div>
+                            <h5 className="mb-2 text-sm font-bold text-orange-800">
+                              ⚔️ Top 5 Opponent Pairs
+                            </h5>
+                            {fairnessStats.oppositions.repeatedPairs.length ===
+                            0 ? (
+                              <div className="rounded bg-green-50 p-2 text-sm text-green-600">
+                                ✅ No repeated opponents — amazing variety!
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {fairnessStats.oppositions.repeatedPairs
+                                  .sort((a, b) => b.count - a.count)
+                                  .slice(0, 5)
+                                  .map((pair, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex justify-between rounded bg-orange-50 p-2 text-sm"
+                                    >
+                                      <span className="font-medium">
+                                        {pair.players.replace('-', ' vs ')}
+                                      </span>
+                                      <span className="text-orange-600">
+                                        {pair.count}× faced
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </details>
                     </div>
                   )}
               </div>
